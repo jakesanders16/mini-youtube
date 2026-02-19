@@ -312,3 +312,4 @@ export default function App() {
     </div>
   );
 }
+console.log("API BASE:", API);
