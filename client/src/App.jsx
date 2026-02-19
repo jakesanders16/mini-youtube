@@ -159,5 +159,23 @@ export default function App() {
         </TabPanel>
       </Tabs>
     </div>
-  );
+  );// home page - test visible content
+return (
+  <div style={{ padding: "40px", background: "#0f0f0f", color: "white", minHeight: "100vh" }}>
+    <h1 style={{ color: "#00c853" }}>Gains Arena - Home</h1>
+    <p>Welcome back, {me?.user?.username || "User"}!</p>
+    <p>Points: {me?.user?.points || 0} | Rank: {me?.user?.rank || "Rookie"}</p>
+    
+    <div style={{ marginTop: 40 }}>
+      <h2>Test Upload</h2>
+      <form>
+        <input type="text" placeholder="Title" style={{ padding: 12, marginBottom: 12, width: "100%" }} />
+        <input type="file" accept="video/*" style={{ marginBottom: 12 }} />
+        <button type="submit" style={{ padding: 12, background: "#00c853", color: "white", border: "none" }}>Upload</button>
+      </form>
+    </div>
+
+    <button onClick={logout} style={{ marginTop: 40, padding: 12, background: "#ff4444", color: "white" }}>Logout</button>
+  </div>
+);
 }
