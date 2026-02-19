@@ -67,7 +67,7 @@ export default function App() {
 
   // --- boot ---
   useEffect(() => {
-    console.log("App.jsx loaded ✅");
+console.log("App.jsx loaded ✅ v999");
     const t = getToken();
     if (t) {
       setPage("home");
