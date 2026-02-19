@@ -1,5 +1,4 @@
-import { useEffect, useState } from "react";
-import { Tab, Tabs, TabList, TabPanel } from 'react-tabs';
+import { useState, useEffect } from "react";import { Tab, Tabs, TabList, TabPanel } from 'react-tabs';
 import 'react-tabs/style/react-tabs.css';  // basic styles, customize later
 import { IconHome, IconUpload, IconChartBar, IconTrophy } from '@tabler/icons-react';const API = import.meta.env.VITE_API_URL || "";
 
