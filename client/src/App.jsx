@@ -22,12 +22,10 @@ async function api(path, { method = "GET", body, auth = false } = {}) {
     payload = JSON.stringify(body);
   }
 
-if (auth) {
-  const t = getToken();
-  console.log("AUTH HEADER TOKEN LEN:", (t || "").length);
-  headers["Authorization"] = `Bearer ${t || ""}`;
-}
-
+  if (auth) {
+    const t = getToken();
+    headers["Authorization"] = `Bearer ${t || ""}`;
+  }
 
   const r = await fetch(`${API}${path}`, { method, headers, body: payload });
   const text = await r.text();
@@ -67,7 +65,7 @@ function RankPill({ rank }) {
         display: "inline-block",
         padding: "4px 10px",
         borderRadius: 999,
-        border: "1px solid #333",
+        border: "1px solid rgba(255,255,255,0.18)",
         background: bg,
         color: "#fff",
         fontSize: 12,
@@ -98,7 +96,14 @@ function VideoThumb({ id }) {
   }, [id]);
 
   return (
-    <div style={{ aspectRatio: "16/9", background: "#000" }}>
+    <div
+      style={{
+        aspectRatio: "16/9",
+        background: "#000",
+        borderRadius: 12,
+        overflow: "hidden",
+      }}
+    >
       <video
         ref={ref}
         src={src}
@@ -157,29 +162,28 @@ export default function App() {
     refreshAll();
   }, []);
 
-async function doAuth(e) {
-  e.preventDefault();
-  setAuthMsg("");
+  async function doAuth(e) {
+    e.preventDefault();
+    setAuthMsg("");
 
-  const endpoint = mode === "login" ? "/api/auth/login" : "/api/auth/register";
-  const r = await api(endpoint, {
-    method: "POST",
-    body: { username, password },
-  });
+    const endpoint = mode === "login" ? "/api/auth/login" : "/api/auth/register";
+    const r = await api(endpoint, {
+      method: "POST",
+      body: { username, password },
+    });
 
-  if (!r.ok) {
-    setAuthMsg(r.data?.error || "Auth failed");
-    return;
+    if (!r.ok) {
+      setAuthMsg(r.data?.error || "Auth failed");
+      return;
+    }
+    setToken(r.data.token);
+
+    setUsername("");
+    setPassword("");
+    setPage("home");
+
+    await refreshMe();
   }
-  setToken(r.data.token);
-
-  setUsername("");
-  setPassword("");
-  setPage("home");
-
-  await refreshMe();
-}
-
 
   function logout() {
     clearToken();
@@ -216,49 +220,73 @@ async function doAuth(e) {
 
   const ordered = useMemo(() => videos, [videos]);
 
+  const shell = {
+    minHeight: "100vh",
+    display: "grid",
+    gridTemplateColumns: "260px 1fr",
+  };
+
+  const asideStyle = {
+    padding: 18,
+    borderRight: "1px solid rgba(255,255,255,0.12)",
+    background: "rgba(255,255,255,0.03)",
+    backdropFilter: "blur(12px)",
+  };
+
+  const mainStyle = {
+    padding: 24,
+    overflow: "auto",
+  };
+
+  const card = {
+    background: "rgba(255,255,255,0.06)",
+    border: "1px solid rgba(255,255,255,0.14)",
+    borderRadius: 16,
+    padding: 14,
+    boxShadow: "0 12px 40px rgba(0,0,0,0.25)",
+  };
+
   return (
-    <div
-      style={{
-        display: "grid",
-        gridTemplateColumns: "240px 1fr",
-        height: "100vh",
-        background: "#0f0f0f",
-        color: "#fff",
-      }}
-    >
+    <div style={shell}>
       {/* Sidebar */}
-      <aside style={{ padding: 16, borderRight: "1px solid #222" }}>
-        <h2 style={{ marginTop: 0 }}>GymTube</h2>
+      <aside style={asideStyle}>
+        <h2 style={{ marginTop: 0, fontWeight: 900, letterSpacing: 0.2 }}>
+          🏋️ GymTube
+        </h2>
 
         {/* Me card */}
-        <div
-          style={{
-            border: "1px solid #222",
-            borderRadius: 14,
-            padding: 12,
-            marginBottom: 12,
-            background: "#111",
-          }}
-        >
+        <div style={{ ...card, marginBottom: 14 }}>
           {!me ? (
-            <div style={{ color: "#aaa" }}>Not logged in</div>
+            <div style={{ color: "var(--muted)" }}>Not logged in</div>
           ) : (
             <>
-              <div style={{ fontWeight: 800 }}>
+              <div style={{ fontWeight: 900, fontSize: 16 }}>
                 {me.username}
                 <RankPill rank={me.rank} />
               </div>
-              <div style={{ color: "#aaa", fontSize: 13, marginTop: 6 }}>
+              <div style={{ color: "var(--muted)", fontSize: 13, marginTop: 6 }}>
                 Points: <b style={{ color: "#fff" }}>{me.points}</b>
               </div>
             </>
           )}
         </div>
 
-        <div style={{ display: "grid", gap: 8 }}>
-          <button onClick={() => { setPage("home"); refreshVideos(); }}>Home</button>
+        <div style={{ display: "grid", gap: 10 }}>
+          <button
+            onClick={() => {
+              setPage("home");
+              refreshVideos();
+            }}
+          >
+            Home
+          </button>
           <button onClick={() => setPage("upload")}>Upload</button>
-          <button onClick={() => { setPage("leaderboard"); loadLeaderboard(); }}>
+          <button
+            onClick={() => {
+              setPage("leaderboard");
+              loadLeaderboard();
+            }}
+          >
             Leaderboard
           </button>
 
@@ -269,7 +297,7 @@ async function doAuth(e) {
           )}
         </div>
 
-        <div style={{ marginTop: 14, color: "#aaa", fontSize: 12, lineHeight: 1.4 }}>
+        <div style={{ marginTop: 14, color: "var(--muted)", fontSize: 12, lineHeight: 1.4 }}>
           Rank is based on points.
           <br />
           Uploading gives +10 points.
@@ -277,40 +305,51 @@ async function doAuth(e) {
       </aside>
 
       {/* Main */}
-      <main style={{ padding: 20, overflow: "auto" }}>
+      <main style={mainStyle}>
         {page === "home" && (
           <>
-            <h2 style={{ marginTop: 0 }}>Videos</h2>
+            <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between" }}>
+              <h2 style={{ marginTop: 0, marginBottom: 10 }}>Videos</h2>
+              <button onClick={refreshVideos}>Refresh</button>
+            </div>
 
             {ordered.length === 0 ? (
-              <div style={{ color: "#aaa" }}>No videos yet.</div>
+              <div style={{ color: "var(--muted)" }}>No videos yet — be the first 💪</div>
             ) : (
-              ordered.map((v) => (
-                <div
-                  key={v.id}
-                  onClick={() => { setPlaying(v.id); setPage("watch"); }}
-                  style={{
-                    marginBottom: 18,
-                    cursor: "pointer",
-                    border: "1px solid #222",
-                    borderRadius: 12,
-                    overflow: "hidden",
-                    maxWidth: 900,
-                  }}
-                >
-                  <VideoThumb id={v.id} />
-                  <div style={{ padding: 10 }}>
-                    <b>{v.title}</b>
-                    <div style={{ color: "#aaa", fontSize: 12, marginTop: 4 }}>
-                      <span style={{ fontWeight: 700, color: "#fff" }}>
-                        {v.username || "unknown"}
-                      </span>
-                      <RankPill rank={v.rank} />
-                      <span style={{ marginLeft: 8 }}>{timeAgo(v.created_at)}</span>
+              <div style={{ display: "grid", gap: 18 }}>
+                {ordered.map((v) => (
+                  <div
+                    key={v.id}
+                    style={{ ...card, cursor: "pointer", maxWidth: 900 }}
+                    onClick={() => {
+                      setPlaying(v.id);
+                      setPage("watch");
+                    }}
+                  >
+                    <VideoThumb id={v.id} />
+                    <div style={{ marginTop: 10 }}>
+                      <div style={{ fontWeight: 900, fontSize: 16 }}>{v.title}</div>
+                      <div
+                        style={{
+                          color: "var(--muted)",
+                          fontSize: 13,
+                          marginTop: 6,
+                          display: "flex",
+                          alignItems: "center",
+                          gap: 8,
+                          flexWrap: "wrap",
+                        }}
+                      >
+                        <span style={{ fontWeight: 800, color: "#fff" }}>
+                          {v.username || "unknown"}
+                        </span>
+                        <RankPill rank={v.rank} />
+                        <span>{timeAgo(v.created_at)}</span>
+                      </div>
                     </div>
                   </div>
-                </div>
-              ))
+                ))}
+              </div>
             )}
           </>
         )}
@@ -322,42 +361,39 @@ async function doAuth(e) {
               <button onClick={loadLeaderboard}>Refresh</button>
             </div>
 
-            <div style={{ color: "#aaa", marginTop: 8 }}>
+            <div style={{ color: "var(--muted)", marginTop: 8 }}>
               Top 25 users by points.
             </div>
 
-            <div style={{ marginTop: 14, maxWidth: 700 }}>
+            <div style={{ marginTop: 14, maxWidth: 720 }}>
               {leaders.length === 0 ? (
-                <div style={{ color: "#aaa" }}>
+                <div style={{ color: "var(--muted)" }}>
                   Nothing yet. Upload videos to earn points.
                 </div>
               ) : (
-                <div style={{ display: "grid", gap: 10 }}>
+                <div style={{ display: "grid", gap: 12 }}>
                   {leaders.map((u) => (
                     <div
                       key={u.id}
                       style={{
-                        border: "1px solid #222",
-                        borderRadius: 14,
-                        padding: 12,
-                        background: "#111",
+                        ...card,
                         display: "flex",
                         alignItems: "center",
                         justifyContent: "space-between",
                       }}
                     >
                       <div>
-                        <div style={{ fontWeight: 800 }}>
+                        <div style={{ fontWeight: 900 }}>
                           #{u.place} {u.username}
                           <RankPill rank={u.rank} />
                         </div>
-                        <div style={{ color: "#aaa", fontSize: 13, marginTop: 4 }}>
+                        <div style={{ color: "var(--muted)", fontSize: 13, marginTop: 4 }}>
                           Points: <b style={{ color: "#fff" }}>{u.points}</b>
                         </div>
                       </div>
 
                       {me?.id === u.id && (
-                        <div style={{ color: "#aaa", fontSize: 12 }}>You</div>
+                        <div style={{ color: "var(--muted)", fontSize: 12 }}>You</div>
                       )}
                     </div>
                   ))}
@@ -371,31 +407,38 @@ async function doAuth(e) {
           <>
             <h2 style={{ marginTop: 0 }}>Upload</h2>
 
-            <form onSubmit={uploadVideo} style={{ display: "grid", gap: 10, maxWidth: 520 }}>
-              <input
-                placeholder="Video title"
-                value={title}
-                onChange={(e) => setTitle(e.target.value)}
-                style={{
-                  padding: 10,
-                  borderRadius: 10,
-                  background: "#121212",
-                  color: "#fff",
-                  border: "1px solid #333",
-                }}
-              />
+            <div style={{ ...card, maxWidth: 560 }}>
+              <form onSubmit={uploadVideo} style={{ display: "grid", gap: 10 }}>
+                <input
+                  placeholder="Video title"
+                  value={title}
+                  onChange={(e) => setTitle(e.target.value)}
+                  style={{
+                    padding: 10,
+                    borderRadius: 12,
+                    background: "rgba(0,0,0,0.25)",
+                    color: "#fff",
+                    border: "1px solid rgba(255,255,255,0.16)",
+                  }}
+                />
 
-              <input
-                type="file"
-                onChange={(e) => setFile(e.target.files?.[0] || null)}
-                style={{ color: "#aaa" }}
-              />
+                <input
+                  type="file"
+                  accept="video/*"
+                  onChange={(e) => setFile(e.target.files?.[0] || null)}
+                  style={{ color: "var(--muted)" }}
+                />
 
-              <button type="submit">Upload</button>
-            </form>
+                <button type="submit">Upload</button>
+              </form>
 
-            {uploadMsg && <div style={{ marginTop: 10, color: "#aaa" }}>{uploadMsg}</div>}
-            {!me && <div style={{ marginTop: 10, color: "#aaa" }}>Login required to upload.</div>}
+              {uploadMsg && <div style={{ marginTop: 10, color: "var(--muted)" }}>{uploadMsg}</div>}
+              {!me && (
+                <div style={{ marginTop: 10, color: "var(--muted)" }}>
+                  Login required to upload.
+                </div>
+              )}
+            </div>
           </>
         )}
 
@@ -408,51 +451,100 @@ async function doAuth(e) {
               <button onClick={() => setMode("register")}>Register</button>
             </div>
 
-            <form onSubmit={doAuth} style={{ display: "grid", gap: 10, maxWidth: 420 }}>
-              <input
-                placeholder="username"
-                value={username}
-                onChange={(e) => setUsername(e.target.value)}
-                style={{
-                  padding: 10,
-                  borderRadius: 10,
-                  background: "#121212",
-                  color: "#fff",
-                  border: "1px solid #333",
-                }}
-              />
-              <input
-                placeholder="password (6+ chars)"
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                style={{
-                  padding: 10,
-                  borderRadius: 10,
-                  background: "#121212",
-                  color: "#fff",
-                  border: "1px solid #333",
-                }}
-              />
-              <button type="submit">{mode === "login" ? "Login" : "Create Account"}</button>
-            </form>
+            <div style={{ ...card, maxWidth: 520 }}>
+              <form onSubmit={doAuth} style={{ display: "grid", gap: 10 }}>
+                <input
+                  placeholder="username"
+                  value={username}
+                  onChange={(e) => setUsername(e.target.value)}
+                  style={{
+                    padding: 10,
+                    borderRadius: 12,
+                    background: "rgba(0,0,0,0.25)",
+                    color: "#fff",
+                    border: "1px solid rgba(255,255,255,0.16)",
+                  }}
+                />
+                <input
+                  placeholder="password (6+ chars)"
+                  type="password"
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  style={{
+                    padding: 10,
+                    borderRadius: 12,
+                    background: "rgba(0,0,0,0.25)",
+                    color: "#fff",
+                    border: "1px solid rgba(255,255,255,0.16)",
+                  }}
+                />
+                <button type="submit">{mode === "login" ? "Login" : "Create Account"}</button>
+              </form>
 
-            {authMsg && <div style={{ marginTop: 10, color: "#ffb4b4" }}>{authMsg}</div>}
+              {authMsg && <div style={{ marginTop: 10, color: "#ffb4b4" }}>{authMsg}</div>}
+            </div>
           </>
         )}
 
         {page === "watch" && playing && (
           <>
-            <button onClick={() => setPage("home")}>Back</button>
-            <video
-              controls
-              autoPlay
-              playsInline
-              src={`${API}/api/stream/${playing}`}
-              style={{ width: "100%", maxWidth: 1000, marginTop: 12, background: "#000" }}
-            />
+            <button onClick={() => setPage("home")}>← Back</button>
+
+            <div style={{ ...card, marginTop: 16, maxWidth: 1100 }}>
+              <video
+                controls
+                autoPlay
+                playsInline
+                preload="metadata"
+                src={`${API}/api/stream/${playing}`}
+                style={{
+                  width: "100%",
+                  borderRadius: 12,
+                  background: "#000",
+                }}
+              />
+            </div>
           </>
         )}
+     
       </main>
+      {/* Mobile Bottom Navigation */}
+<div className="bottom-nav">
+  <button
+    className={page === "home" ? "active" : ""}
+    onClick={() => setPage("home")}
+  >
+    <span>🏠</span>
+    <span>Home</span>
+  </button>
+
+  <button
+    className={page === "upload" ? "active" : ""}
+    onClick={() => setPage("upload")}
+  >
+    <span>⬆️</span>
+    <span>Upload</span>
+  </button>
+
+  <button
+    className={page === "leaderboard" ? "active" : ""}
+    onClick={() => setPage("leaderboard")}
+  >
+    <span>🏆</span>
+    <span>Rank</span>
+  </button>
+
+  <button
+    className={page === "auth" ? "active" : ""}
+    onClick={() => setPage(me ? "home" : "auth")}
+  >
+    <span>{me ? "👤" : "🔐"}</span>
+    <span>{me ? "Me" : "Login"}</span>
+  </button>
+</div>
+
     </div>
+
+    
   );
 }
