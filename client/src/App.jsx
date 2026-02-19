@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 
-const API = "http://localhost:4000";
+const API = "https://mini-youtube-api-rgd4.onrender.com";
 
 // ---- token helpers ----
 function getToken() {
