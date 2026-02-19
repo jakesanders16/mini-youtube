@@ -25,43 +25,34 @@ const ALLOWED_ORIGINS = [
 
 const corsOptions = {
   origin: (origin, callback) => {
-    if (!origin) {
-      return callback(null, true); // allow non-browser (curl, Render health, etc.)
-    }
+    if (!origin) return callback(null, true);
 
-    // Normalize origin (remove trailing slash)
     const normalizedOrigin = origin.replace(/\/$/, "");
 
     if (ALLOWED_ORIGINS.includes(normalizedOrigin)) {
       console.log(`CORS ALLOWED origin: ${origin}`);
-      return callback(null, origin); // reflect exact origin
+      return callback(null, origin);
     }
 
-
     console.log(`CORS REJECTED origin: ${origin}`);
-    // For production: uncomment next line to strictly block
-    // return callback(new Error(`Not allowed by CORS: ${origin}`), false);
-
-    // TEMP DEBUG: allow anyway so we can see if headers arrive
+    // TEMP: allow for debug (remove in prod if you want strict)
     return callback(null, origin);
+    // Strict: return callback(new Error(`Not allowed by CORS: ${origin}`), false);
   },
   credentials: true,
   methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
   allowedHeaders: ["Content-Type", "Authorization"],
-  optionsSuccessStatus: 200,     // Some browsers/legacy need 200 instead of 204
-  maxAge: 86400                  // Cache preflight 24 hours
+  optionsSuccessStatus: 200,
+  maxAge: 86400,
 };
 
-// Apply CORS middleware
-app.options(/.*/, cors(corsOptions));
-
-// CRITICAL: Explicitly handle ALL OPTIONS preflights early (fixes Render proxy issues)
-app.options("*", (req, res) => {
+// Handle preflights with custom logic (early, before other middleware)
+app.options("/*all", (req, res) => {
   const origin = req.headers.origin;
 
   console.log(`[OPTIONS] Preflight request received from origin: ${origin || "no-origin"}`);
 
-  let allowedOrigin = "*"; // fallback for debug
+  let allowedOrigin = "*"; // fallback
 
   if (origin) {
     const normalized = origin.replace(/\/$/, "");
@@ -76,8 +67,11 @@ app.options("*", (req, res) => {
   res.setHeader("Access-Control-Allow-Headers", "Content-Type, Authorization");
   res.setHeader("Access-Control-Max-Age", "86400");
 
-  return res.status(204).end(); // Standard preflight response
+  return res.status(204).end();
 });
+
+// Apply global CORS (for non-preflight requests)
+app.use(cors(corsOptions));
 
 /* ------------------ middleware ------------------ */
 app.use(express.json());
@@ -86,7 +80,13 @@ app.get("/", (_, res) => res.status(200).send("ok"));
 
 /* ------------------ uploads ------------------ */
 const UPLOAD_DIR = path.join(__dirname, "uploads");
-if (!fs.existsSync(UPLOAD_DIR)) fs.mkdirSync(UPLOAD_DIR, { recursive: true });
+if (!fs.existsSync(UPLOAD_DIR)) {
+  try {
+    fs.mkdirSync(UPLOAD_DIR, { recursive: true });
+  } catch (err) {
+    console.error("Failed to create uploads dir:", err);
+  }
+}
 
 const storage = multer.diskStorage({
   destination: (_, __, cb) => cb(null, UPLOAD_DIR),
@@ -101,131 +101,150 @@ const upload = multer({ storage });
 let db;
 
 async function initDb() {
-  db = await open({
-    filename: path.join(__dirname, "db.sqlite"),
-    driver: sqlite3.Database,
-  });
-
-  await db.exec(`
-    CREATE TABLE IF NOT EXISTS users (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      username TEXT UNIQUE,
-      password_hash TEXT,
-      created_at TEXT,
-      points INTEGER DEFAULT 0
-    );
-
-    CREATE TABLE IF NOT EXISTS videos (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      title TEXT,
-      filename TEXT,
-      mimetype TEXT,
-      size INTEGER,
-      created_at TEXT,
-      user_id INTEGER
-    );
-
-    CREATE TABLE IF NOT EXISTS likes (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      user_id INTEGER,
-      video_id INTEGER,
-      created_at TEXT,
-      UNIQUE(user_id, video_id)
-    );
-
-    CREATE TABLE IF NOT EXISTS comments (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      user_id INTEGER,
-      video_id INTEGER,
-      text TEXT,
-      created_at TEXT
-    );
-  `);
-}
-
-await initDb();
-
-/* ------------------ auth helpers ------------------ */
-const JWT_SECRET = process.env.JWT_SECRET || "dev-secret";
-
-function makeToken(user) {
-  return jwt.sign(
-    { id: user.id, username: user.username },
-    JWT_SECRET,
-    { expiresIn: "7d" }
-  );
-}
-
-function auth(req, res, next) {
-  const h = req.headers.authorization || "";
-  const t = h.startsWith("Bearer ") ? h.slice(7) : null;
-  if (!t) return res.status(401).json({ error: "Missing token" });
-
   try {
-    req.user = jwt.verify(t, JWT_SECRET);
-    next();
-  } catch {
-    return res.status(401).json({ error: "Bad token" });
+    console.log("Initializing SQLite DB...");
+    db = await open({
+      filename: path.join(__dirname, "db.sqlite"),
+      driver: sqlite3.Database,
+    });
+    console.log("SQLite DB opened successfully");
+
+    await db.exec(`
+      CREATE TABLE IF NOT EXISTS users (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        username TEXT UNIQUE,
+        password_hash TEXT,
+        created_at TEXT,
+        points INTEGER DEFAULT 0
+      );
+
+      CREATE TABLE IF NOT EXISTS videos (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        title TEXT,
+        filename TEXT,
+        mimetype TEXT,
+        size INTEGER,
+        created_at TEXT,
+        user_id INTEGER
+      );
+
+      CREATE TABLE IF NOT EXISTS likes (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        user_id INTEGER,
+        video_id INTEGER,
+        created_at TEXT,
+        UNIQUE(user_id, video_id)
+      );
+
+      CREATE TABLE IF NOT EXISTS comments (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        user_id INTEGER,
+        video_id INTEGER,
+        text TEXT,
+        created_at TEXT
+      );
+    `);
+    console.log("Database tables created/verified");
+  } catch (err) {
+    console.error("DB initialization failed:", err.message);
+    console.error(err.stack);
+    throw err; // let it crash so we see the error in logs
   }
 }
 
-/* ------------------ health ------------------ */
-app.get("/api/health", (_, res) => res.json({ ok: true }));
-
-/* ------------------ AUTH ------------------ */
-app.post("/api/auth/register", async (req, res) => {
-  const { username, password } = req.body || {};
-  if (!username || !password || password.length < 6) {
-    return res.status(400).json({ error: "Invalid input" });
-  }
-
-  const hash = await bcrypt.hash(password, 10);
-
+/* ------------------ startup ------------------ */
+(async () => {
   try {
-    const r = await db.run(
-      "INSERT INTO users (username, password_hash, created_at) VALUES (?, ?, ?)",
-      username.trim(),
-      hash,
-      new Date().toISOString()
-    );
+    await initDb();
 
-    const user = { id: r.lastID, username };
-    return res.json({ token: makeToken(user), user });
-  } catch {
-    return res.status(400).json({ error: "Username taken" });
+    /* ------------------ auth helpers ------------------ */
+    const JWT_SECRET = process.env.JWT_SECRET || "dev-secret";
+
+    function makeToken(user) {
+      return jwt.sign(
+        { id: user.id, username: user.username },
+        JWT_SECRET,
+        { expiresIn: "7d" }
+      );
+    }
+
+    function auth(req, res, next) {
+      const h = req.headers.authorization || "";
+      const t = h.startsWith("Bearer ") ? h.slice(7) : null;
+      if (!t) return res.status(401).json({ error: "Missing token" });
+
+      try {
+        req.user = jwt.verify(t, JWT_SECRET);
+        next();
+      } catch {
+        return res.status(401).json({ error: "Bad token" });
+      }
+    }
+
+    /* ------------------ health ------------------ */
+    app.get("/api/health", (_, res) => res.json({ ok: true }));
+
+    /* ------------------ AUTH ------------------ */
+    app.post("/api/auth/register", async (req, res) => {
+      const { username, password } = req.body || {};
+      if (!username || !password || password.length < 6) {
+        return res.status(400).json({ error: "Invalid input" });
+      }
+
+      const hash = await bcrypt.hash(password, 10);
+
+      try {
+        const r = await db.run(
+          "INSERT INTO users (username, password_hash, created_at) VALUES (?, ?, ?)",
+          username.trim(),
+          hash,
+          new Date().toISOString()
+        );
+
+        const user = { id: r.lastID, username };
+        return res.json({ token: makeToken(user), user });
+      } catch (err) {
+        console.error("Register error:", err);
+        return res.status(400).json({ error: "Username taken" });
+      }
+    });
+
+    app.post("/api/auth/login", async (req, res) => {
+      const { username, password } = req.body || {};
+      if (!username || !password) {
+        return res.status(400).json({ error: "Missing credentials" });
+      }
+
+      const row = await db.get(
+        "SELECT * FROM users WHERE username=?",
+        username.trim()
+      );
+
+      if (!row) return res.status(401).json({ error: "Invalid login" });
+
+      const ok = await bcrypt.compare(password, row.password_hash);
+      if (!ok) return res.status(401).json({ error: "Invalid login" });
+
+      const user = { id: row.id, username: row.username };
+      return res.json({ token: makeToken(user), user });
+    });
+
+    app.get("/api/auth/me", auth, async (req, res) => {
+      const u = await db.get(
+        "SELECT id, username, points FROM users WHERE id=?",
+        req.user.id
+      );
+      return res.json({ user: u });
+    });
+
+    /* ------------------ START ------------------ */
+    const PORT = process.env.PORT || 10000;
+    app.listen(PORT, "0.0.0.0", () => {
+      console.log(`Server listening on port ${PORT}`);
+    });
+  } catch (err) {
+    console.error("Fatal startup error:", err.message);
+    console.error(err.stack);
+    process.exit(1);
   }
-});
-
-app.post("/api/auth/login", async (req, res) => {
-  const { username, password } = req.body || {};
-  if (!username || !password) {
-    return res.status(400).json({ error: "Missing credentials" });
-  }
-
-  const row = await db.get(
-    "SELECT * FROM users WHERE username=?",
-    username.trim()
-  );
-
-  if (!row) return res.status(401).json({ error: "Invalid login" });
-
-  const ok = await bcrypt.compare(password, row.password_hash);
-  if (!ok) return res.status(401).json({ error: "Invalid login" });
-
-  const user = { id: row.id, username: row.username };
-  return res.json({ token: makeToken(user), user });
-});
-
-app.get("/api/auth/me", auth, async (req, res) => {
-  const u = await db.get(
-    "SELECT id, username, points FROM users WHERE id=?",
-    req.user.id
-  );
-  return res.json({ user: u });
-});
-
-/* ------------------ START ------------------ */
-const PORT = process.env.PORT || 10000;
-app.listen(PORT, () => {
-  console.log("LISTENING ON PORT", PORT);
-});
+})();
