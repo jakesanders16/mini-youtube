@@ -80,14 +80,13 @@ export default function App() {
 
   async function refreshMe() {
     // If your backend has /api/me, this will work.
-    // If not, you can delete this.
+    // If not, you can delete refreshMe/refreshAll/me UI.
     const r = await api("/api/me", { auth: true });
     if (r.ok) setMe(r.data);
     return r;
   }
 
   async function refreshAll() {
-    // Add whatever other refresh calls you have here.
     await refreshMe();
   }
 
@@ -139,84 +138,109 @@ export default function App() {
   // --- UI ---
   if (page === "auth") {
     return (
-      <div style={{ maxWidth: 420, margin: "60px auto", fontFamily: "Arial" }}>
-        <h2 style={{ marginBottom: 10 }}>
-          {mode === "login" ? "Login" : "Create Account"}
-        </h2>
+      <div style={{ maxWidth: 520, margin: "60px auto", fontFamily: "Arial" }}>
+        <h1 style={{ marginBottom: 18 }}>
+          {mode === "login" ? "Login" : "Register"}
+        </h1>
 
-        <div style={{ display: "flex", gap: 8, marginBottom: 14 }}>
+        {/* mode switch buttons - NOT submit buttons */}
+        <div style={{ display: "flex", gap: 12, marginBottom: 18 }}>
           <button
             type="button"
             onClick={() => setMode("login")}
             style={{
-              padding: "8px 10px",
-              opacity: mode === "login" ? 1 : 0.6,
+              padding: "10px 16px",
+              borderRadius: 12,
+              opacity: mode === "login" ? 1 : 0.65,
             }}
           >
             Login
           </button>
+
           <button
             type="button"
             onClick={() => setMode("register")}
             style={{
-              padding: "8px 10px",
-              opacity: mode === "register" ? 1 : 0.6,
+              padding: "10px 16px",
+              borderRadius: 12,
+              opacity: mode === "register" ? 1 : 0.65,
             }}
           >
             Register
           </button>
         </div>
 
-        <form onSubmit={doAuth} style={{ display: "grid", gap: 10 }}>
+        {/* THE FORM */}
+        <form
+          onSubmit={doAuth}
+          style={{
+            display: "grid",
+            gap: 14,
+            padding: 18,
+            borderRadius: 18,
+            border: "1px solid rgba(255,255,255,0.15)",
+          }}
+        >
           <input
             placeholder="username"
             value={username}
             onChange={(e) => setUsername(e.target.value)}
             autoComplete="username"
+            style={{ padding: 12, borderRadius: 12 }}
           />
+
           <input
             placeholder="password"
             type="password"
             value={password}
             onChange={(e) => setPassword(e.target.value)}
-            autoComplete={
-              mode === "login" ? "current-password" : "new-password"
-            }
+            autoComplete={mode === "login" ? "current-password" : "new-password"}
+            style={{ padding: 12, borderRadius: 12 }}
           />
 
           {/* ONLY ONE submit button */}
-          <button type="submit">
+          <button
+            type="submit"
+            style={{
+              padding: 14,
+              borderRadius: 14,
+              fontSize: 18,
+              cursor: "pointer",
+            }}
+          >
             {mode === "login" ? "Login" : "Create Account"}
           </button>
-        </form>
 
-        {authMsg && (
-          <div style={{ marginTop: 10, color: "crimson" }}>{authMsg}</div>
-        )}
+          {authMsg && (
+            <div style={{ marginTop: 6, color: "#ff6b6b" }}>{authMsg}</div>
+          )}
+        </form>
       </div>
     );
   }
 
   // home page
   return (
-    <div style={{ maxWidth: 700, margin: "60px auto", fontFamily: "Arial" }}>
+    <div style={{ maxWidth: 800, margin: "60px auto", fontFamily: "Arial" }}>
       <div style={{ display: "flex", justifyContent: "space-between" }}>
         <h2>Home</h2>
         <button onClick={logout}>Logout</button>
       </div>
 
-      <p>Token exists ✅</p>
+      <div style={{ marginTop: 14 }}>
+        <p>Token exists ✅</p>
 
-      <div style={{ marginTop: 16 }}>
-        <h3>/api/me result:</h3>
-        <pre style={{ background: "#f4f4f4", padding: 12 }}>
-          {JSON.stringify(me, null, 2)}
-        </pre>
+        <div style={{ marginTop: 16 }}>
+          <h3>/api/me result:</h3>
+          <pre style={{ background: "#f4f4f4", padding: 12 }}>
+            {JSON.stringify(me, null, 2)}
+          </pre>
+        </div>
+
+        <button style={{ marginTop: 12 }} onClick={refreshAll}>
+          Refresh
+        </button>
       </div>
-
-      <button style={{ marginTop: 12 }} onClick={refreshAll}>
-        Refresh
-      </button>
     </div>
   );
 }
