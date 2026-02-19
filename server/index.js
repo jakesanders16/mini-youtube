@@ -1,8 +1,6 @@
 import express from "express";
 import cors from "cors";
 import multer from "multer";
-import fs from "fs";
-import path from "path";
 import { fileURLToPath } from "url";
 import { open } from "sqlite";
 import sqlite3 from "sqlite3";
