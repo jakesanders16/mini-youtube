@@ -27,9 +27,12 @@ const ALLOWED_ORIGINS = [
 
 const corsOptions = {
   origin: (origin, cb) => {
-    if (!origin) return cb(null, true); // curl/health checks
-    const o = origin.replace(/\/$/, "");
-    if (ALLOWED_ORIGINS.includes(o)) return cb(null, true);
+    // allow non-browser requests (Render health checks, curl)
+    if (!origin) return cb(null, true);
+
+    const normalized = origin.replace(/\/$/, "");
+    if (ALLOWED_ORIGINS.includes(normalized)) return cb(null, true);
+
     return cb(new Error("Not allowed by CORS: " + origin));
   },
   credentials: true,
@@ -37,11 +40,11 @@ const corsOptions = {
   allowedHeaders: ["Content-Type", "Authorization"],
 };
 
+// IMPORTANT: Express can error on "*" in some setups. Use regex.
 app.use(cors(corsOptions));
-// preflight
-app.options("*", cors(corsOptions));
+app.options(/.*/, cors(corsOptions));
 
-/* quick root check */
+/* ------------------ quick root ------------------ */
 app.get("/", (_, res) => res.status(200).send("ok"));
 
 /* ------------------ uploads ------------------ */
@@ -56,6 +59,9 @@ const storage = multer.diskStorage({
   },
 });
 const upload = multer({ storage });
+
+// (optional) serve uploads
+app.use("/uploads", express.static(UPLOAD_DIR));
 
 /* ------------------ DB ------------------ */
 let db;
@@ -125,7 +131,7 @@ function auth(req, res, next) {
   }
 }
 
-/* ------------------ API routes ------------------ */
+/* ------------------ API ------------------ */
 app.get("/api/health", (_, res) => res.json({ ok: true }));
 
 app.post("/api/auth/register", async (req, res) => {
@@ -175,15 +181,8 @@ app.get("/api/auth/me", auth, async (req, res) => {
   return res.json({ user: u });
 });
 
-/* ------------------ (optional) example upload route ------------------
-app.post("/api/videos/upload", auth, upload.single("file"), async (req, res) => {
-  // implement later
-  return res.json({ ok: true });
-});
---------------------------------------------------------------------- */
-
 /* ------------------ start ------------------ */
-async function start() {
+async function main() {
   await initDb();
 
   const PORT = process.env.PORT || 10000;
@@ -192,7 +191,7 @@ async function start() {
   });
 }
 
-start().catch((err) => {
-  console.error("FATAL STARTUP ERROR:", err);
+main().catch((e) => {
+  console.error("FATAL:", e);
   process.exit(1);
 });
