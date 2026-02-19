@@ -16,15 +16,19 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 const app = express();
-app.use(cors({ origin: ["http://localhost:5173", "http://localhost:5174"] }));
-app.use(express.json());
+console.log("BOOT VERSION: v999 ✅");
+
 app.use(cors({
   origin: [
     "http://localhost:5173",
-    "https://YOUR-VERCEL-DOMAIN.vercel.app"
+    "https://mini-youtube-h6ex.onrender.com"
   ],
   credentials: true
 }));
+
+app.use(express.json());   // 👈 THIS WAS MISSING
+
+
 
 const JWT_SECRET = process.env.JWT_SECRET || "dev-secret";
 
@@ -318,9 +322,8 @@ app.post("/api/videos/:id/comments", auth, async (req, res) => {
 });
 
 // ---------- Start ----------
-app.listen(4000, () => {
-  console.log("Backend running on http://localhost:4000");
-});
+
+
 app.get("/api/leaderboard", async (_, res) => {
   const rows = await db.all(
     "SELECT id, username, points FROM users ORDER BY points DESC, id ASC LIMIT 25"
@@ -336,5 +339,7 @@ app.get("/api/leaderboard", async (_, res) => {
     }))
   );
 });
-const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => console.log(`Server running on ${PORT}`));
+const PORT = process.env.PORT || 4000;
+app.listen(PORT, () => {
+  console.log("LISTEN VERSION: v999 ✅ PORT =", PORT);
+});
