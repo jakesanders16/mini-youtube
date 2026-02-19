@@ -20,7 +20,42 @@ async function api(path, { method = "GET", body, auth = false } = {}) {
   if (body && !(body instanceof FormData)) {
     headers["Content-Type"] = "application/json";
     payload = JSON.stringify(body);
+  }async function api(path, { method = "GET", body, auth = false } = {}) {
+  try {
+    const headers = {};
+    let payload = body;
+
+    if (body && !(body instanceof FormData)) {
+      headers["Content-Type"] = "application/json";
+      payload = JSON.stringify(body);
+    }
+
+    if (auth) {
+      const t = getToken();
+      headers["Authorization"] = `Bearer ${t || ""}`;
+    }
+
+    const r = await fetch(`${API}${path}`, { method, headers, body: payload });
+
+    const text = await r.text();
+
+    let data = null;
+    try {
+      data = text ? JSON.parse(text) : null;
+    } catch {
+      data = text ? { raw: text } : null;
+    }
+
+    return { ok: r.ok, status: r.status, data };
+  } catch (err) {
+    return {
+      ok: false,
+      status: 0,
+      data: { error: "Network error", detail: String(err) },
+    };
   }
+}
+
 
   if (auth) {
     const t = getToken();
@@ -161,29 +196,42 @@ export default function App() {
   useEffect(() => {
     refreshAll();
   }, []);
+console.log("App.jsx loaded ✅");
+ async function doAuth(e) {
+  e.preventDefault();
+  setAuthMsg("");
 
-  async function doAuth(e) {
-    e.preventDefault();
-    setAuthMsg("");
+  const endpoint = mode === "login" ? "/api/auth/login" : "/api/auth/register";
 
-    const endpoint = mode === "login" ? "/api/auth/login" : "/api/auth/register";
-    const r = await api(endpoint, {
-      method: "POST",
-      body: { username, password },
-    });
+  const r = await api(endpoint, {
+    method: "POST",
+    body: { username: username.trim(), password },
+  });
 
-    if (!r.ok) {
-      setAuthMsg(r.data?.error || "Auth failed");
-      return;
-    }
-    setToken(r.data.token);
+  // SHOW EVERYTHING so we can fix it
+  console.log("AUTH endpoint:", endpoint);
+  console.log("AUTH response:", r);
 
-    setUsername("");
-    setPassword("");
-    setPage("home");
-
-    await refreshMe();
+  if (!r.ok) {
+    setAuthMsg(
+      `Failed (${r.status}): ` +
+        (r.data?.error || r.data?.message || r.data?.raw || JSON.stringify(r.data))
+    );
+    return;
   }
+
+  if (!r.data?.token) {
+    setAuthMsg(`No token returned: ${JSON.stringify(r.data)}`);
+    return;
+  }
+
+  setToken(r.data.token);
+  setUsername("");
+  setPassword("");
+  setPage("home");
+  await refreshAll();
+}
+
 
   function logout() {
     clearToken();
@@ -480,6 +528,9 @@ export default function App() {
                 />
                 <button type="submit">{mode === "login" ? "Login" : "Create Account"}</button>
               </form>
+<button type="submit">
+  {mode === "login" ? "Login" : "Create Account"}
+</button>
 
               {authMsg && <div style={{ marginTop: 10, color: "#ffb4b4" }}>{authMsg}</div>}
             </div>
