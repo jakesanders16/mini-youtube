@@ -222,32 +222,57 @@ const r = await api("/api/auth/me", { auth: true });
     );
   }
 
-// home page
+// home page - clean version, no debug junk
 return (
-  <div style={{ maxWidth: 800, margin: "60px auto", fontFamily: "Arial" }}>
-    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-      <h2>Home – Welcome, {me?.user?.username || "User"}!</h2>
-      <button
+  <div style={{ 
+    maxWidth: 900, 
+    margin: "40px auto", 
+    fontFamily: "Arial, sans-serif", 
+    color: "#fff", 
+    background: "#0f0f0f", 
+    padding: "20px", 
+    borderRadius: 16 
+  }}>
+    {/* Header */}
+    <div style={{ 
+      display: "flex", 
+      justifyContent: "space-between", 
+      alignItems: "center", 
+      marginBottom: 30 
+    }}>
+      <h1 style={{ margin: 0, fontSize: 32 }}>Mini YouTube</h1>
+      <button 
         onClick={logout}
-        style={{ padding: "8px 16px", background: "#e74c3c", color: "white", border: "none", borderRadius: 8 }}
+        style={{ 
+          padding: "10px 20px", 
+          background: "#ff4444", 
+          color: "white", 
+          border: "none", 
+          borderRadius: 8, 
+          cursor: "pointer", 
+          fontWeight: "bold" 
+        }}
       >
         Logout
       </button>
     </div>
 
-    <div style={{ marginTop: 20, padding: 16, background: "#1e1e1e", borderRadius: 12 }}>
-      <h3>Your Profile</h3>
-      <pre style={{ background: "#2d2d2d", padding: 12, borderRadius: 8, overflow: "auto" }}>
-        {JSON.stringify(me, null, 2)}
-      </pre>
-      <p>Points: <strong>{me?.user?.points || 0}</strong> | Rank: <strong>{me?.user?.rank || "Unknown"}</strong></p>
+    {/* Welcome + Profile Summary */}
+    <div style={{ 
+      background: "#1a1a1a", 
+      padding: 24, 
+      borderRadius: 12, 
+      marginBottom: 40 
+    }}>
+      <h2 style={{ marginTop: 0 }}>Welcome back, {me?.user?.username || "User"}!</h2>
+      <p style={{ fontSize: 18, margin: "12px 0" }}>
+        Points: <strong>{me?.user?.points || 0}</strong> • Rank: <strong>{me?.user?.rank || "Rookie"}</strong>
+      </p>
     </div>
 
-    {/* ──────────────────────────────────────────────── */}
-    {/*               VIDEO UPLOAD FORM                  */}
-    {/* ──────────────────────────────────────────────── */}
-    <div style={{ marginTop: 40 }}>
-      <h3>Upload a Video</h3>
+    {/* Upload Section */}
+    <div style={{ background: "#1a1a1a", padding: 24, borderRadius: 12 }}>
+      <h3 style={{ marginTop: 0 }}>Upload a New Video</h3>
       
       <form
         onSubmit={async (e) => {
@@ -259,46 +284,69 @@ return (
             body: formData,
             auth: true
           });
+          
           console.log("Upload response:", r);
+          
           if (r.ok) {
-            alert("Video uploaded successfully!");
-            refreshAll();
+            alert("Video uploaded! 🎉");
+            refreshAll(); // update points if needed
             e.target.reset();
           } else {
-            alert("Upload failed: " + (r.data?.error || r.data?.message || "Unknown error " + r.status));
+            alert("Upload failed: " + (r.data?.error || "Check console for details"));
           }
         }}
-        style={{ display: "grid", gap: 16, maxWidth: 500, marginTop: 16 }}
+        style={{ display: "grid", gap: 20 }}
       >
         <div>
-          <label style={{ display: "block", marginBottom: 6 }}>Video Title</label>
+          <label style={{ display: "block", marginBottom: 8, fontWeight: "bold" }}>
+            Video Title
+          </label>
           <input
             type="text"
             name="title"
-            placeholder="My awesome video"
+            placeholder="Enter a cool title..."
             required
-            style={{ width: "100%", padding: 12, borderRadius: 8, border: "1px solid #444" }}
+            style={{ 
+              width: "100%", 
+              padding: 12, 
+              borderRadius: 8, 
+              border: "1px solid #444", 
+              background: "#222", 
+              color: "white" 
+            }}
           />
         </div>
+
         <div>
-          <label style={{ display: "block", marginBottom: 6 }}>Choose Video File</label>
+          <label style={{ display: "block", marginBottom: 8, fontWeight: "bold" }}>
+            Choose Video
+          </label>
           <input
             type="file"
             name="video"
             accept="video/*"
             required
-            style={{ width: "100%", padding: 8 }}
+            style={{ 
+              width: "100%", 
+              padding: 12, 
+              background: "#222", 
+              color: "white", 
+              border: "1px solid #444", 
+              borderRadius: 8 
+            }}
           />
         </div>
+
         <button
           type="submit"
           style={{
-            padding: 14,
-            background: "#4CAF50",
+            padding: 16,
+            background: "#00c853",
             color: "white",
             border: "none",
             borderRadius: 8,
-            fontSize: 16,
+            fontSize: 18,
+            fontWeight: "bold",
             cursor: "pointer"
           }}
         >
@@ -307,12 +355,10 @@ return (
       </form>
     </div>
 
-    <button
-      style={{ marginTop: 32, padding: 10, background: "#3498db", color: "white", border: "none", borderRadius: 8 }}
-      onClick={refreshAll}
-    >
-      Refresh Profile
-    </button>
+    {/* Optional: Add more sections later */}
+    <div style={{ marginTop: 40, textAlign: "center", color: "#aaa" }}>
+      <p>More coming soon: Watch videos, like, comment...</p>
+    </div>
   </div>
 );
 }
