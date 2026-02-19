@@ -81,7 +81,7 @@ console.log("App.jsx loaded ✅ v999");
   async function refreshMe() {
     // If your backend has /api/me, this will work.
     // If not, you can delete refreshMe/refreshAll/me UI.
-    const r = await api("/api/me", { auth: true });
+const r = await api("/api/auth/me", { auth: true });
     if (r.ok) setMe(r.data);
     return r;
   }
@@ -234,7 +234,7 @@ console.log("App.jsx loaded ✅ v999");
         <p>Token exists ✅</p>
 
         <div style={{ marginTop: 16 }}>
-          <h3>/api/me result:</h3>
+         <h3>/api/auth/me result:</h3>
           <pre style={{ background: "#f4f4f4", padding: 12 }}>
             {JSON.stringify(me, null, 2)}
           </pre>
@@ -247,3 +247,4 @@ console.log("App.jsx loaded ✅ v999");
     </div>
   );
 }
+console.log("API base:", API);
