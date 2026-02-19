@@ -92,6 +92,7 @@ export default function App() {
 
   // --- AUTH (ONLY ONE doAuth) ---
   async function doAuth(e) {
+    console.log("doAuth fired ✅");
     e.preventDefault();
     setAuthMsg("");
 
@@ -199,17 +200,19 @@ export default function App() {
           />
 
           {/* ONLY ONE submit button */}
-          <button
-            type="submit"
-            style={{
-              padding: 14,
-              borderRadius: 14,
-              fontSize: 18,
-              cursor: "pointer",
-            }}
-          >
-            {mode === "login" ? "Login" : "Create Account"}
-          </button>
+         <button
+  type="submit"
+  onClick={() => console.log("LOGIN BUTTON CLICKED ✅")}
+  style={{
+    padding: 14,
+    borderRadius: 14,
+    fontSize: 18,
+    cursor: "pointer",
+  }}
+>
+  {mode === "login" ? "Login" : "Create Account"}
+</button>
+
 
           {authMsg && (
             <div style={{ marginTop: 6, color: "#ff6b6b" }}>{authMsg}</div>
