@@ -1,12 +1,10 @@
-// index.js (Render backend) — clean, working, CORS-safe for Render + Vercel + localhost
+// server/index.js — VIDEOS ONLY (no login), Render-safe, CORS-safe, Express5-safe
 import express from "express";
 import cors from "cors";
 import multer from "multer";
 import { fileURLToPath } from "url";
 import path from "path";
 import fs from "fs";
-import bcrypt from "bcrypt";
-import jwt from "jsonwebtoken";
 import { open } from "sqlite";
 import sqlite3 from "sqlite3";
 
@@ -15,46 +13,43 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 const app = express();
-console.log("BOOT VERSION: v3000 ✅");
+console.log("BOOT VERSION: v4000 (VIDEOS ONLY) ✅");
 
-/* ------------------ middleware ------------------ */
 app.use(express.json());
 
-/* ------------------ CORS (IMPORTANT) ------------------ */
-// ✅ add BOTH your frontends here
+/* ------------------ CORS ------------------ */
 const ALLOWED_ORIGINS = [
   "http://localhost:5173",
-  "https://mini-youtube-tawny.vercel.app",   // Vercel frontend
-  "https://mini-youtube-h6ex.onrender.com",  // Render frontend (if you use it)
+  "https://mini-youtube-tawny.vercel.app",
+  "https://mini-youtubes.onrender.com",
+  "https://mini-youtube-h6ex.onrender.com",
 ];
 
 const corsOptions = {
   origin: (origin, cb) => {
-    // allow server-to-server / curl / Render health checks
     if (!origin) return cb(null, true);
-
-    // allow exact matches only
     if (ALLOWED_ORIGINS.includes(origin)) return cb(null, true);
-
     return cb(new Error("CORS blocked: " + origin));
   },
-  credentials: true,
-  methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
-  allowedHeaders: ["Content-Type", "Authorization"],
+  credentials: false, // no login/cookies
+  methods: ["GET", "POST", "DELETE", "OPTIONS"],
+  allowedHeaders: ["Content-Type"],
 };
 
-// ✅ MUST be before routes
 app.use(cors(corsOptions));
-// ✅ preflight for ALL routes with SAME options
-app.options("*", cors(corsOptions));
+// ✅ Express 5 / path-to-regexp safe preflight (DO NOT use "*")
+app.options(/.*/, cors(corsOptions));
 
-/* ------------------ quick sanity routes ------------------ */
-app.get("/", (req, res) => res.status(200).send("API OK ✅"));
+/* ------------------ sanity routes ------------------ */
+app.get("/", (req, res) => res.status(200).send("API OK ✅ (videos only)"));
 app.get("/api/health", (req, res) => res.json({ ok: true }));
 
 /* ------------------ uploads ------------------ */
 const UPLOAD_DIR = path.join(__dirname, "uploads");
 if (!fs.existsSync(UPLOAD_DIR)) fs.mkdirSync(UPLOAD_DIR, { recursive: true });
+
+// serve uploaded files
+app.use("/uploads", express.static(UPLOAD_DIR));
 
 const storage = multer.diskStorage({
   destination: (_, __, cb) => cb(null, UPLOAD_DIR),
@@ -64,9 +59,6 @@ const storage = multer.diskStorage({
   },
 });
 const upload = multer({ storage });
-
-// serve uploaded files
-app.use("/uploads", express.static(UPLOAD_DIR));
 
 /* ------------------ DB ------------------ */
 let db;
@@ -80,35 +72,17 @@ async function initDb() {
   await db.exec(`
     PRAGMA journal_mode = WAL;
 
-    CREATE TABLE IF NOT EXISTS users (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      username TEXT UNIQUE NOT NULL,
-      password_hash TEXT NOT NULL,
-      created_at TEXT NOT NULL,
-      points INTEGER DEFAULT 0
-    );
-
     CREATE TABLE IF NOT EXISTS videos (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       title TEXT NOT NULL,
       filename TEXT NOT NULL,
       mimetype TEXT,
       size INTEGER,
-      created_at TEXT NOT NULL,
-      user_id INTEGER NOT NULL
-    );
-
-    CREATE TABLE IF NOT EXISTS likes (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      user_id INTEGER NOT NULL,
-      video_id INTEGER NOT NULL,
-      created_at TEXT NOT NULL,
-      UNIQUE(user_id, video_id)
+      created_at TEXT NOT NULL
     );
 
     CREATE TABLE IF NOT EXISTS comments (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
-      user_id INTEGER NOT NULL,
       video_id INTEGER NOT NULL,
       text TEXT NOT NULL,
       created_at TEXT NOT NULL
@@ -116,105 +90,25 @@ async function initDb() {
   `);
 }
 
-/* ------------------ auth helpers ------------------ */
-const JWT_SECRET = process.env.JWT_SECRET || "dev-secret-change-me";
-
-function makeToken(user) {
-  return jwt.sign({ id: user.id, username: user.username }, JWT_SECRET, {
-    expiresIn: "7d",
-  });
-}
-
-function auth(req, res, next) {
-  const h = req.headers.authorization || "";
-  const token = h.startsWith("Bearer ") ? h.slice(7) : null;
-  if (!token) return res.status(401).json({ error: "Missing token" });
-
-  try {
-    req.user = jwt.verify(token, JWT_SECRET);
-    return next();
-  } catch {
-    return res.status(401).json({ error: "Bad token" });
-  }
-}
-
-/* ------------------ AUTH routes ------------------ */
-app.post("/api/auth/register", async (req, res) => {
-  try {
-    const { username, password } = req.body || {};
-    const u = (username || "").trim();
-
-    if (!u || !password || password.length < 6) {
-      return res.status(400).json({ error: "Username + 6+ char password required" });
-    }
-
-    const hash = await bcrypt.hash(password, 10);
-
-    const r = await db.run(
-      "INSERT INTO users (username, password_hash, created_at) VALUES (?, ?, ?)",
-      u,
-      hash,
-      new Date().toISOString()
-    );
-
-    const user = { id: r.lastID, username: u };
-    return res.json({ token: makeToken(user), user });
-  } catch (e) {
-    return res.status(400).json({ error: "Username taken" });
-  }
-});
-
-app.post("/api/auth/login", async (req, res) => {
-  try {
-    const { username, password } = req.body || {};
-    const u = (username || "").trim();
-
-    if (!u || !password) {
-      return res.status(400).json({ error: "Missing credentials" });
-    }
-
-    const row = await db.get("SELECT * FROM users WHERE username = ?", u);
-    if (!row) return res.status(401).json({ error: "Invalid login" });
-
-    const ok = await bcrypt.compare(password, row.password_hash);
-    if (!ok) return res.status(401).json({ error: "Invalid login" });
-
-    const user = { id: row.id, username: row.username };
-    return res.json({ token: makeToken(user), user });
-  } catch (e) {
-    return res.status(500).json({ error: "Server error" });
-  }
-});
-
-// ✅ this is what your frontend is calling ("loading gains..." stuck)
-app.get("/api/auth/me", auth, async (req, res) => {
-  const u = await db.get(
-    "SELECT id, username, points FROM users WHERE id = ?",
-    req.user.id
-  );
-  return res.json({ user: u || null });
-});
-
-/* ------------------ VIDEO routes (basic) ------------------ */
+/* ------------------ VIDEOS ------------------ */
 app.get("/api/videos", async (req, res) => {
   const rows = await db.all(`
-    SELECT v.id, v.title, v.filename, v.mimetype, v.size, v.created_at, v.user_id,
-           u.username
-    FROM videos v
-    JOIN users u ON u.id = v.user_id
-    ORDER BY v.id DESC
-    LIMIT 100
+    SELECT id, title, filename, mimetype, size, created_at
+    FROM videos
+    ORDER BY id DESC
+    LIMIT 200
   `);
 
-  const out = rows.map((r) => ({
-    ...r,
-    url: `/uploads/${r.filename}`,
+  const videos = rows.map((v) => ({
+    ...v,
+    url: `/uploads/${v.filename}`,
   }));
 
-  return res.json({ videos: out });
+  res.json({ videos });
 });
 
-app.post("/api/videos", auth, upload.single("video"), async (req, res) => {
+// upload (public)
+app.post("/api/videos", upload.single("video"), async (req, res) => {
   const title = (req.body?.title || "").trim();
   const f = req.file;
 
@@ -224,66 +118,91 @@ app.post("/api/videos", auth, upload.single("video"), async (req, res) => {
   const now = new Date().toISOString();
 
   const r = await db.run(
-    `INSERT INTO videos (title, filename, mimetype, size, created_at, user_id)
-     VALUES (?, ?, ?, ?, ?, ?)`,
+    `INSERT INTO videos (title, filename, mimetype, size, created_at)
+     VALUES (?, ?, ?, ?, ?)`,
     title,
     f.filename,
     f.mimetype || "",
     f.size || 0,
-    now,
-    req.user.id
+    now
   );
 
-  return res.json({
+  res.json({
     ok: true,
     video: {
       id: r.lastID,
       title,
       filename: f.filename,
       url: `/uploads/${f.filename}`,
+      mimetype: f.mimetype || "",
+      size: f.size || 0,
       created_at: now,
-      user_id: req.user.id,
     },
   });
 });
 
-app.delete("/api/videos/:id", auth, async (req, res) => {
+// delete (public — add a secret later if you want)
+app.delete("/api/videos/:id", async (req, res) => {
   const id = Number(req.params.id);
   if (!Number.isFinite(id)) return res.status(400).json({ error: "Bad id" });
 
   const row = await db.get("SELECT * FROM videos WHERE id = ?", id);
   if (!row) return res.status(404).json({ error: "Not found" });
 
-  // simple owner check
-  if (row.user_id !== req.user.id) {
-    return res.status(403).json({ error: "Forbidden" });
-  }
-
-  // delete db record
   await db.run("DELETE FROM videos WHERE id = ?", id);
 
-  // best-effort delete file
   const filepath = path.join(UPLOAD_DIR, row.filename);
   try {
     if (fs.existsSync(filepath)) fs.unlinkSync(filepath);
   } catch {}
 
-  return res.json({ ok: true });
+  res.json({ ok: true });
 });
 
-/* ------------------ 404 fallback for API ------------------ */
-app.use("/api", (req, res) => {
-  return res.status(404).json({ error: "API route not found" });
+/* ------------------ COMMENTS (optional, public) ------------------ */
+app.get("/api/videos/:id/comments", async (req, res) => {
+  const videoId = Number(req.params.id);
+  if (!Number.isFinite(videoId)) return res.status(400).json({ error: "Bad id" });
+
+  const rows = await db.all(
+    `SELECT id, video_id, text, created_at
+     FROM comments
+     WHERE video_id = ?
+     ORDER BY id DESC
+     LIMIT 200`,
+    videoId
+  );
+
+  res.json({ comments: rows });
 });
+
+app.post("/api/videos/:id/comments", async (req, res) => {
+  const videoId = Number(req.params.id);
+  if (!Number.isFinite(videoId)) return res.status(400).json({ error: "Bad id" });
+
+  const text = (req.body?.text || "").trim();
+  if (!text) return res.status(400).json({ error: "Missing text" });
+
+  const now = new Date().toISOString();
+
+  const r = await db.run(
+    `INSERT INTO comments (video_id, text, created_at) VALUES (?, ?, ?)`,
+    videoId,
+    text,
+    now
+  );
+
+  res.json({ ok: true, comment: { id: r.lastID, video_id: videoId, text, created_at: now } });
+});
+
+/* ------------------ API 404 ------------------ */
+app.use("/api", (req, res) => res.status(404).json({ error: "API route not found" }));
 
 /* ------------------ start ------------------ */
 async function main() {
   await initDb();
-
   const PORT = process.env.PORT || 10000;
-  app.listen(PORT, "0.0.0.0", () => {
-    console.log("LISTENING ON", PORT);
-  });
+  app.listen(PORT, "0.0.0.0", () => console.log("LISTENING ON", PORT));
 }
 
 main().catch((e) => {
