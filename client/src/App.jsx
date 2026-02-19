@@ -1,4 +1,13 @@
-// client/src/App.jsx — Home + Upload + Form Check Forum (no login)
+// client/src/App.jsx — Home + Upload + Form Check Forum + Reply Voting (no login)
+// Works with your server endpoints:
+// - GET  /api/videos
+// - POST /api/videos (FormData: title, video)
+// - GET  /api/posts
+// - POST /api/posts          { title, body, video_id? }
+// - GET  /api/posts/:id/comments
+// - POST /api/posts/:id/comments   { text }
+// - POST /api/comments/:id/vote    { value: 1 or -1 }
+
 import { useEffect, useMemo, useState } from "react";
 import { Tab, Tabs, TabList, TabPanel } from "react-tabs";
 import "react-tabs/style/react-tabs.css";
@@ -214,7 +223,11 @@ function UploadPage({ onUploaded }) {
     if (!title) return setErr("Title required");
     if (!file || !file.name) return setErr("Pick a video file");
 
-    const r = await jfetch("/api/videos", { method: "POST", body: fd, isForm: true });
+    const r = await jfetch("/api/videos", {
+      method: "POST",
+      body: fd,
+      isForm: true,
+    });
     if (!r.ok) {
       setErr(r.data?.error || `Upload failed (${r.status})`);
       return;
@@ -230,10 +243,24 @@ function UploadPage({ onUploaded }) {
       <h2 style={{ marginTop: 0 }}>Upload</h2>
       <div style={S.muted}>Post a lift. No login. Straight to the feed.</div>
 
-      <form onSubmit={handleSubmit} style={{ display: "grid", gap: 12, maxWidth: 560, marginTop: 14 }}>
-        <input name="title" placeholder="Video title (ex: 315 bench PR)" style={S.input} />
+      <form
+        onSubmit={handleSubmit}
+        style={{
+          display: "grid",
+          gap: 12,
+          maxWidth: 560,
+          marginTop: 14,
+        }}
+      >
+        <input
+          name="title"
+          placeholder="Video title (ex: 315 bench PR)"
+          style={S.input}
+        />
         <input type="file" name="video" accept="video/*" style={{ padding: 10 }} />
-        <button type="submit" style={S.buttonGreen}>Upload</button>
+        <button type="submit" style={S.buttonGreen}>
+          Upload
+        </button>
 
         {err && <div style={{ color: "#ff6b6b" }}>{err}</div>}
         {ok && <div style={{ color: "#00c853" }}>{ok}</div>}
@@ -241,7 +268,8 @@ function UploadPage({ onUploaded }) {
         <div style={S.card}>
           <div style={{ fontWeight: 800 }}>Pro tip</div>
           <div style={{ opacity: 0.75, marginTop: 6 }}>
-            After you upload, go to <strong>Form Check</strong> and make a post asking for cues.
+            After you upload, go to <strong>Form Check</strong> and make a post
+            asking for cues.
           </div>
         </div>
       </form>
@@ -249,25 +277,30 @@ function UploadPage({ onUploaded }) {
   );
 }
 
-// ---------- Form Check Forum ----------
+// ---------- Form Check Forum + Voting ----------
 function ForumPage() {
   const [posts, setPosts] = useState([]);
-  const [selected, setSelected] = useState(null); // {post, replies}
+  const [selectedPost, setSelectedPost] = useState(null); // post object
+  const [comments, setComments] = useState([]); // post_comments rows with score/helped/didnt_help
   const [loading, setLoading] = useState(true);
+  const [threadLoading, setThreadLoading] = useState(false);
   const [err, setErr] = useState("");
 
   // create post
   const [title, setTitle] = useState("");
   const [body, setBody] = useState("");
-  const [videoUrl, setVideoUrl] = useState("");
+  const [videoId, setVideoId] = useState(""); // optional numeric id
 
-  // reply
-  const [reply, setReply] = useState("");
+  // create comment
+  const [replyText, setReplyText] = useState("");
 
-  async function loadList() {
+  // voting busy state
+  const [voteBusyId, setVoteBusyId] = useState(null);
+
+  async function loadPosts() {
     setLoading(true);
     setErr("");
-    const r = await jfetch("/api/forum/posts?limit=100");
+    const r = await jfetch("/api/posts");
     if (!r.ok) {
       setErr(`Failed (${r.status})`);
       setLoading(false);
@@ -277,67 +310,97 @@ function ForumPage() {
     setLoading(false);
   }
 
-  async function openThread(id) {
-    const r = await jfetch(`/api/forum/posts/${id}`);
-    if (!r.ok) return;
-    setSelected({ post: r.data.post, replies: r.data.replies || [] });
-    setReply("");
+  async function openThread(post) {
+    if (!post?.id) return;
+    setSelectedPost(post);
+    setThreadLoading(true);
+
+    const r = await jfetch(`/api/posts/${post.id}/comments`);
+    if (r.ok) {
+      setComments(r.data?.comments || []);
+    } else {
+      setComments([]);
+    }
+    setThreadLoading(false);
+    setReplyText("");
   }
 
   async function createPost(e) {
     e.preventDefault();
     const t = title.trim();
     const b = body.trim();
-    const u = videoUrl.trim();
-
     if (!t) return alert("Title required");
     if (!b) return alert("Body required");
 
     const payload = { title: t, body: b };
-    if (u) payload.video_url = u; // can be /uploads/... or https://...
+    const vid = String(videoId || "").trim();
+    if (vid) payload.video_id = Number(vid);
 
-    const r = await jfetch("/api/forum/posts", { method: "POST", body: payload });
+    const r = await jfetch("/api/posts", { method: "POST", body: payload });
     if (!r.ok) return alert(r.data?.error || `Failed (${r.status})`);
 
     setTitle("");
     setBody("");
-    setVideoUrl("");
-    await loadList();
-    await openThread(r.data?.post?.id);
+    setVideoId("");
+
+    await loadPosts();
+
+    // open the new thread
+    const created = r.data?.post;
+    if (created?.id) {
+      await openThread(created);
+    }
   }
 
   async function sendReply(e) {
     e.preventDefault();
-    if (!selected?.post?.id) return;
+    if (!selectedPost?.id) return;
 
-    const b = reply.trim();
-    if (!b) return;
+    const text = replyText.trim();
+    if (!text) return;
 
-    const r = await jfetch(`/api/forum/posts/${selected.post.id}/replies`, {
+    const r = await jfetch(`/api/posts/${selectedPost.id}/comments`, {
       method: "POST",
-      body: { body: b },
+      body: { text },
     });
 
     if (!r.ok) return alert(r.data?.error || `Failed (${r.status})`);
 
-    // refresh thread
-    await openThread(selected.post.id);
-    setReply("");
-    await loadList();
+    // reload sorted comments
+    await openThread(selectedPost);
+    await loadPosts();
+  }
+
+  async function voteReply(commentId, value) {
+    if (!selectedPost?.id) return;
+    setVoteBusyId(commentId);
+
+    const r = await jfetch(`/api/comments/${commentId}/vote`, {
+      method: "POST",
+      body: { value }, // 1 or -1
+    });
+
+    setVoteBusyId(null);
+
+    if (!r.ok) {
+      alert(r.data?.error || `Vote failed (${r.status})`);
+      return;
+    }
+
+    // reload sorted comments so best advice floats up
+    await openThread(selectedPost);
   }
 
   useEffect(() => {
-    loadList();
+    loadPosts();
   }, []);
 
-  const hasThread = !!selected?.post;
+  const hasThread = !!selectedPost?.id;
 
   return (
     <div>
       <h2 style={{ marginTop: 0 }}>Form Check Forum</h2>
-      <div style={S.muted}>
-        Ask for advice. People reply with cues. No accounts.
-      </div>
+      <div style={S.muted}>Ask for advice. People reply. Vote best advice up.</div>
 
       {/* Create Post */}
       <div style={{ ...S.card, marginTop: 14 }}>
@@ -357,14 +420,17 @@ function ForumPage() {
             style={{ ...S.input, minHeight: 90, resize: "vertical" }}
           />
           <input
-            value={videoUrl}
-            onChange={(e) => setVideoUrl(e.target.value)}
-            placeholder="Optional: paste video url (ex: /uploads/123__squat.mp4 or a full https link)"
+            value={videoId}
+            onChange={(e) => setVideoId(e.target.value)}
+            placeholder="Optional: attach a video by ID (ex: 12)"
             style={S.input}
           />
           <button type="submit" style={S.buttonGreen}>
             Post
           </button>
+          <div style={{ ...S.muted, marginTop: 2 }}>
+            Tip: Copy the video’s ID from Home feed (the #number).
+          </div>
         </form>
       </div>
 
@@ -379,9 +445,18 @@ function ForumPage() {
       >
         {/* Posts list */}
         <div style={S.card}>
-          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 12 }}>
+          <div
+            style={{
+              display: "flex",
+              justifyContent: "space-between",
+              alignItems: "center",
+              gap: 12,
+            }}
+          >
             <div style={{ fontWeight: 900 }}>Latest posts</div>
-            <button onClick={loadList} style={S.buttonDark}>Refresh</button>
+            <button onClick={loadPosts} style={S.buttonDark}>
+              Refresh
+            </button>
           </div>
 
           {loading ? (
@@ -389,18 +464,23 @@ function ForumPage() {
           ) : err ? (
             <div style={{ marginTop: 10, color: "#ff6b6b" }}>{err}</div>
           ) : !posts.length ? (
-            <div style={{ marginTop: 10, opacity: 0.7 }}>No posts yet. Start it.</div>
+            <div style={{ marginTop: 10, opacity: 0.7 }}>
+              No posts yet. Start it.
+            </div>
           ) : (
             <div style={{ display: "grid", gap: 10, marginTop: 12 }}>
               {posts.map((p) => (
                 <button
                   key={p.id}
-                  onClick={() => openThread(p.id)}
+                  onClick={() => openThread(p)}
                   style={{
                     textAlign: "left",
                     padding: 12,
                     borderRadius: 12,
-                    background: hasThread && selected?.post?.id === p.id ? "#1f1f1f" : "#141414",
+                    background:
+                      hasThread && selectedPost?.id === p.id
+                        ? "#1f1f1f"
+                        : "#141414",
                     border: "1px solid #2b2b2b",
                     color: "white",
                     cursor: "pointer",
@@ -408,7 +488,8 @@ function ForumPage() {
                 >
                   <div style={{ fontWeight: 900 }}>{p.title}</div>
                   <div style={{ opacity: 0.7, fontSize: 12, marginTop: 4 }}>
-                    {new Date(p.created_at).toLocaleString()} • {p.reply_count || 0} replies
+                    {new Date(p.created_at).toLocaleString()}
+                    {p.video_url ? " • 🎥 attached" : ""}
                   </div>
                   <div style={{ opacity: 0.75, fontSize: 13, marginTop: 6 }}>
                     {String(p.body || "").slice(0, 140)}
@@ -423,76 +504,128 @@ function ForumPage() {
         {/* Thread */}
         <div style={S.card}>
           {!hasThread ? (
-            <div style={{ opacity: 0.75 }}>
-              Open a post to see replies.
-            </div>
+            <div style={{ opacity: 0.75 }}>Open a post to see replies.</div>
           ) : (
             <>
-              <div style={{ fontWeight: 1000, fontSize: 18 }}>{selected.post.title}</div>
+              <div style={{ fontWeight: 1000, fontSize: 18 }}>
+                {selectedPost.title}
+              </div>
               <div style={{ opacity: 0.65, fontSize: 12, marginTop: 4 }}>
-                {new Date(selected.post.created_at).toLocaleString()} • Post #{selected.post.id}
+                {new Date(selectedPost.created_at).toLocaleString()} • Post #
+                {selectedPost.id}
               </div>
 
-              <div style={{ marginTop: 12, whiteSpace: "pre-wrap", lineHeight: 1.35 }}>
-                {selected.post.body}
+              <div
+                style={{
+                  marginTop: 12,
+                  whiteSpace: "pre-wrap",
+                  lineHeight: 1.35,
+                }}
+              >
+                {selectedPost.body}
               </div>
 
-              {selected.post.video_url ? (
+              {selectedPost.video_url ? (
                 <div style={{ marginTop: 12 }}>
                   <div style={{ opacity: 0.7, fontSize: 12, marginBottom: 6 }}>
                     Attached video
                   </div>
-
-                  {/* If they used /uploads/... we make it absolute */}
-                  {selected.post.video_url.startsWith("/uploads/") ? (
-                    <video
-                      controls
-                      playsInline
-                      style={{ width: "100%", borderRadius: 12, background: "black" }}
-                      src={`${API}${selected.post.video_url}`}
-                    />
-                  ) : (
-                    <a
-                      href={selected.post.video_url}
-                      target="_blank"
-                      rel="noreferrer"
-                      style={{ color: "#00c853" }}
-                    >
-                      Open video link
-                    </a>
-                  )}
+                  <video
+                    controls
+                    playsInline
+                    style={{
+                      width: "100%",
+                      borderRadius: 12,
+                      background: "black",
+                    }}
+                    src={`${API}${selectedPost.video_url}`}
+                  />
                 </div>
               ) : null}
 
               <div style={{ marginTop: 16, fontWeight: 900 }}>Replies</div>
 
-              <div style={{ display: "grid", gap: 10, marginTop: 10 }}>
-                {(selected.replies || []).length ? (
-                  selected.replies.map((r) => (
-                    <div
-                      key={r.id}
-                      style={{
-                        padding: 12,
-                        borderRadius: 12,
-                        background: "#141414",
-                        border: "1px solid #2b2b2b",
-                      }}
-                    >
-                      <div style={{ whiteSpace: "pre-wrap" }}>{r.body}</div>
-                      <div style={{ opacity: 0.6, fontSize: 12, marginTop: 8 }}>
-                        {new Date(r.created_at).toLocaleString()}
-                      </div>
-                    </div>
-                  ))
-                ) : (
-                  <div style={{ opacity: 0.7 }}>No replies yet. Be the first.</div>
-                )}
-              </div>
+              {threadLoading ? (
+                <div style={{ marginTop: 10, opacity: 0.7 }}>Loading replies…</div>
+              ) : (
+                <div style={{ display: "grid", gap: 10, marginTop: 10 }}>
+                  {comments.length ? (
+                    comments.map((r) => (
+                      <div
+                        key={r.id}
+                        style={{
+                          padding: 12,
+                          borderRadius: 12,
+                          background: "#141414",
+                          border: "1px solid #2b2b2b",
+                        }}
+                      >
+                        <div style={{ whiteSpace: "pre-wrap" }}>{r.text}</div>
 
-              <form onSubmit={sendReply} style={{ display: "grid", gap: 10, marginTop: 14 }}>
+                        {/* score + vote buttons */}
+                        <div
+                          style={{
+                            display: "flex",
+                            alignItems: "center",
+                            justifyContent: "space-between",
+                            gap: 10,
+                            marginTop: 10,
+                          }}
+                        >
+                          <div style={{ opacity: 0.7, fontSize: 12 }}>
+                            Score:{" "}
+                            <strong style={{ opacity: 1 }}>
+                              {Number(r.score || 0)}
+                            </strong>{" "}
+                            • Helped {Number(r.helped || 0)} • Not it{" "}
+                            {Number(r.didnt_help || 0)} •{" "}
+                            {new Date(r.created_at).toLocaleString()}
+                          </div>
+
+                          <div style={{ display: "flex", gap: 8 }}>
+                            <button
+                              type="button"
+                              disabled={voteBusyId === r.id}
+                              onClick={() => voteReply(r.id, 1)}
+                              style={{
+                                ...S.buttonDark,
+                                padding: "10px 12px",
+                                opacity: voteBusyId === r.id ? 0.6 : 1,
+                              }}
+                            >
+                              Helped ✅
+                            </button>
+                            <button
+                              type="button"
+                              disabled={voteBusyId === r.id}
+                              onClick={() => voteReply(r.id, -1)}
+                              style={{
+                                ...S.buttonDark,
+                                padding: "10px 12px",
+                                opacity: voteBusyId === r.id ? 0.6 : 1,
+                              }}
+                            >
+                              Not it ❌
+                            </button>
+                          </div>
+                        </div>
+                      </div>
+                    ))
+                  ) : (
+                    <div style={{ opacity: 0.7 }}>
+                      No replies yet. Be the first.
+                    </div>
+                  )}
+                </div>
+              )}
+
+              <form
+                onSubmit={sendReply}
+                style={{ display: "grid", gap: 10, marginTop: 14 }}
+              >
                 <textarea
-                  value={reply}
-                  onChange={(e) => setReply(e.target.value)}
+                  value={replyText}
+                  onChange={(e) => setReplyText(e.target.value)}
                   placeholder="Write advice (cues, form tips, what you’d change)…"
                   style={{ ...S.input, minHeight: 80, resize: "vertical" }}
                 />
@@ -506,7 +639,7 @@ function ForumPage() {
       </div>
 
       <div style={{ marginTop: 14, opacity: 0.6, fontSize: 12 }}>
-        Tip: If you want a “pick from uploaded videos” button next, I’ll add it.
+        Voting is anonymous (IP+UA hashed). Best advice floats up automatically.
       </div>
     </div>
   );
@@ -518,10 +651,12 @@ function ProgressPage() {
     <div>
       <h2 style={{ marginTop: 0 }}>Progress</h2>
       <p style={S.muted}>
-        No login = no points yet. Later we can do public streaks or device-based stats.
+        No login = no points yet. Later we can do public streaks or device-based
+        stats.
       </p>
       <div style={S.card}>
-        Next ideas: “PR of the day”, “streaks”, “challenges”, “local gym leaderboard”.
+        Next ideas: “PR of the day”, “streaks”, “challenges”, “local gym
+        leaderboard”.
       </div>
     </div>
   );
@@ -531,9 +666,7 @@ function LeaderboardPage() {
   return (
     <div>
       <h2 style={{ marginTop: 0 }}>Leaderboard</h2>
-      <p style={S.muted}>
-        Coming soon. We can start with “Top uploads this week” (public).
-      </p>
+      <p style={S.muted}>Coming soon. We can start with “Top helpful replies”.</p>
       <div style={S.card}>
         Next ideas: Most helpful commenters • Most viewed • Most posted.
       </div>
