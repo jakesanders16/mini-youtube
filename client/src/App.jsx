@@ -1,411 +1,165 @@
 import { useEffect, useState } from "react";
+import { Tab, Tabs, TabList, TabPanel } from 'react-tabs';
+import 'react-tabs/style/react-tabs.css';  // basic styles, customize later
+import { IconHome, IconUpload, IconBarChart, IconTrophy } from '@tabler/icons-react';  // cool icons
 
 const API = import.meta.env.VITE_API_URL || "";
 
-// --- token helpers ---
-function getToken() {
-  return localStorage.getItem("token");
-}
-function setToken(t) {
-  localStorage.setItem("token", t);
-}
-function clearToken() {
-  localStorage.removeItem("token");
-}
+function getToken() { /* keep as is */ }
+function setToken(t) { /* keep as is */ }
+function clearToken() { /* keep as is */ }
 
-// --- API helper ---
-async function api(path, { method = "GET", body, auth = false } = {}) {
-  try {
-    const headers = {};
-    let payload = undefined;
+async function api(path, { method = "GET", body, auth = false } = {}) { /* keep as is */ }
 
-    // If body exists, choose JSON vs FormData
-    if (body !== undefined && body !== null) {
-      if (body instanceof FormData) {
-        payload = body; // don't set Content-Type manually
-      } else {
-        headers["Content-Type"] = "application/json";
-        payload = JSON.stringify(body);
-      }
-    }
+// Ranks definition (points thresholds)
+const RANKS = [
+  { name: "Rookie", min: 0, max: 99 },
+  { name: "Pro", min: 100, max: 499 },
+  { name: "Elite", min: 500, max: 999 },
+  { name: "Legend", min: 1000, max: Infinity },
+];
 
-    // Add auth header if needed
-    if (auth) {
-      const t = getToken();
-      if (t) headers["Authorization"] = `Bearer ${t}`;
-    }
-
-    const r = await fetch(`${API}${path}`, { method, headers, body: payload });
-    const text = await r.text();
-
-    let data = null;
-    try {
-      data = text ? JSON.parse(text) : null;
-    } catch {
-      data = text ? { raw: text } : null;
-    }
-
-    return { ok: r.ok, status: r.status, data };
-  } catch (err) {
-    return {
-      ok: false,
-      status: 0,
-      data: { error: "Network error", detail: String(err) },
-    };
-  }
+// AuthPage component (keep from before, but simplified)
+function AuthPage({ onLogin }) {
+  /* keep your auth form code here, call onLogin() after successful login */
 }
 
+// Main App
 export default function App() {
-  const [page, setPage] = useState("auth"); // "auth" or "home"
-  const [mode, setMode] = useState("login"); // "login" or "register"
-
-  const [username, setUsername] = useState("");
-  const [password, setPassword] = useState("");
-
-  const [authMsg, setAuthMsg] = useState("");
   const [me, setMe] = useState(null);
+  const [tabIndex, setTabIndex] = useState(0);
+  const [prHistory, setPrHistory] = useState([]);  // for auto-PR check
 
-  // --- boot ---
   useEffect(() => {
-console.log("App.jsx loaded ✅ v999");
     const t = getToken();
     if (t) {
-      setPage("home");
-      refreshAll();
-    } else {
-      setPage("auth");
+      refreshMe();
+      fetchPrHistory();
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   async function refreshMe() {
-    // If your backend has /api/me, this will work.
-    // If not, you can delete refreshMe/refreshAll/me UI.
-const r = await api("/api/auth/me", { auth: true });
+    const r = await api("/api/auth/me", { auth: true });
     if (r.ok) setMe(r.data);
-    return r;
   }
 
-  async function refreshAll() {
-    await refreshMe();
-  }
-
-  // --- AUTH (ONLY ONE doAuth) ---
-  async function doAuth(e) {
-    console.log("doAuth fired ✅");
-    e.preventDefault();
-    setAuthMsg("");
-
-    const endpoint = mode === "login" ? "/api/auth/login" : "/api/auth/register";
-
-    const r = await api(endpoint, {
-      method: "POST",
-      body: { username: username.trim(), password },
-    });
-
-    console.log("AUTH endpoint:", endpoint);
-    console.log("AUTH response:", r);
-
-    if (!r.ok) {
-      setAuthMsg(
-        `Failed (${r.status}): ` +
-          (r.data?.error ||
-            r.data?.message ||
-            r.data?.raw ||
-            JSON.stringify(r.data))
-      );
-      return;
-    }
-
-    if (!r.data?.token) {
-      setAuthMsg(`No token returned: ${JSON.stringify(r.data)}`);
-      return;
-    }
-
-    setToken(r.data.token);
-    setUsername("");
-    setPassword("");
-    setPage("home");
-    await refreshAll();
+  async function fetchPrHistory() {
+    const r = await api("/api/my-prs", { auth: true });  // add this endpoint on backend later
+    if (r.ok) setPrHistory(r.data || []);
   }
 
   function logout() {
     clearToken();
     setMe(null);
-    setPage("auth");
-    setAuthMsg("");
   }
 
-  // --- UI ---
-  if (page === "auth") {
-    return (
-      <div style={{ maxWidth: 520, margin: "60px auto", fontFamily: "Arial" }}>
-        <h1 style={{ marginBottom: 18 }}>
-          {mode === "login" ? "Login" : "Register"}
-        </h1>
-
-        {/* mode switch buttons - NOT submit buttons */}
-        <div style={{ display: "flex", gap: 12, marginBottom: 18 }}>
-          <button
-            type="button"
-            onClick={() => setMode("login")}
-            style={{
-              padding: "10px 16px",
-              borderRadius: 12,
-              opacity: mode === "login" ? 1 : 0.65,
-            }}
-          >
-            Login
-          </button>
-
-          <button
-            type="button"
-            onClick={() => setMode("register")}
-            style={{
-              padding: "10px 16px",
-              borderRadius: 12,
-              opacity: mode === "register" ? 1 : 0.65,
-            }}
-          >
-            Register
-          </button>
-        </div>
-
-        {/* THE FORM */}
-        <form
-          onSubmit={doAuth}
-          style={{
-            display: "grid",
-            gap: 14,
-            padding: 18,
-            borderRadius: 18,
-            border: "1px solid rgba(255,255,255,0.15)",
-          }}
-        >
-          <input
-            placeholder="username"
-            value={username}
-            onChange={(e) => setUsername(e.target.value)}
-            autoComplete="username"
-            style={{ padding: 12, borderRadius: 12 }}
-          />
-
-          <input
-            placeholder="password"
-            type="password"
-            value={password}
-            onChange={(e) => setPassword(e.target.value)}
-            autoComplete={mode === "login" ? "current-password" : "new-password"}
-            style={{ padding: 12, borderRadius: 12 }}
-          />
-
-          {/* ONLY ONE submit button */}
-         <button
-  type="submit"
-  onClick={() => console.log("LOGIN BUTTON CLICKED ✅")}
-  style={{
-    padding: 14,
-    borderRadius: 14,
-    fontSize: 18,
-    cursor: "pointer",
-  }}
->
-  {mode === "login" ? "Login" : "Create Account"}
-</button>
-
-
-          {authMsg && (
-            <div style={{ marginTop: 6, color: "#ff6b6b" }}>{authMsg}</div>
-          )}
-        </form>
-      </div>
-    );
+  function handleLogin() {
+    refreshMe();
   }
 
-// home page - clean version, no debug junk
-return (
-  <div style={{ 
-    maxWidth: 900, 
-    margin: "40px auto", 
-    fontFamily: "Arial, sans-serif", 
-    color: "#fff", 
-    background: "#0f0f0f", 
-    padding: "20px", 
-    borderRadius: 16 
-  }}>
-    {/* Header */}
+  if (!getToken()) {
+    return <AuthPage onLogin={handleLogin} />;
+  }
+
+  // Find current rank and progress
+  const currentRank = RANKS.find(r => me.user.points >= r.min && me.user.points < r.max) || RANKS[0];
+  const nextRank = RANKS[RANKS.indexOf(currentRank) + 1] || currentRank;
+  const progressPercent = ((me.user.points - currentRank.min) / (currentRank.max - currentRank.min)) * 100;
+
+  return (
     <div style={{ 
-      display: "flex", 
-      justifyContent: "space-between", 
-      alignItems: "center", 
-      marginBottom: 30 
+      height: "100vh", 
+      background: "linear-gradient(#0f0f0f, #1a1a1a)", 
+      color: "white", 
+      fontFamily: "Arial, sans-serif",
+      padding: "20px 0"
     }}>
-      <h1 style={{ margin: 0, fontSize: 32 }}>Mini YouTube</h1>
-      <button 
-        onClick={logout}
-        style={{ 
-          padding: "10px 20px", 
-          background: "#ff4444", 
-          color: "white", 
-          border: "none", 
-          borderRadius: 8, 
-          cursor: "pointer", 
-          fontWeight: "bold" 
-        }}
-      >
-        Logout
-      </button>
+      {/* Top Header */}
+      <header style={{ textAlign: "center", marginBottom: 30 }}>
+        <h1 style={{ fontSize: 36, color: "#00c853" }}>Gains Arena</h1>
+        <p>Upload PRs, earn points, dominate the ranks!</p>
+      </header>
+
+      {/* Tabs */}
+      <Tabs selectedIndex={tabIndex} onSelect={(index) => setTabIndex(index)} style={{ flex: 1 }}>
+        <TabList style={{ 
+          display: "flex", 
+          justifyContent: "space-around", 
+          background: "#1a1a1a", 
+          padding: "10px 0", 
+          borderRadius: 16, 
+          position: "fixed", 
+          bottom: 0, 
+          width: "100%" 
+        }}>
+          <Tab><IconHome /> Home</Tab>
+          <Tab><IconUpload /> Upload PR</Tab>
+          <Tab><IconBarChart /> Progress</Tab>
+          <Tab><IconTrophy /> Leaderboard</Tab>
+        </TabList>
+
+        {/* Tab Content */}
+        <TabPanel>
+          <h2>Home Feed</h2>
+          <p>Latest workout videos from the community. Like/comment to give points!</p>
+          {/* Add video list fetch here, e.g. <VideoFeed /> */}
+          <div> (Stub: Video 1 - Bench PR by UserX ) </div>
+        </TabPanel>
+
+        <TabPanel>
+          <h2>Upload PR Video</h2>
+          <form onSubmit={async (e) => {
+            e.preventDefault();
+            const formData = new FormData(e.target);
+            const liftType = formData.get("liftType");
+            const weight = parseFloat(formData.get("weight"));
+            const reps = parseInt(formData.get("reps"));
+
+            // Innovative PR check: Compare to history
+            const pastPr = prHistory.find(pr => pr.type === liftType);
+            const isNewPr = !pastPr || (weight * reps > pastPr.weight * pastPr.reps);
+            formData.append("isPr", isNewPr);
+
+            const r = await api("/api/videos", { method: "POST", body: formData, auth: true });
+            if (r.ok) {
+              alert(`Uploaded! ${isNewPr ? "New PR! +100 pts" : "+50 pts"}`);
+              refreshMe();
+              fetchPrHistory();
+            } else {
+              alert("Failed: " + r.data?.error);
+            }
+          }}>
+            <select name="liftType" required>
+              <option value="">Choose Lift Type</option>
+              <option value="bench">Bench Press</option>
+              <option value="squat">Squat</option>
+              <option value="deadlift">Deadlift</option>
+              <option value="other">Other</option>
+            </select>
+            <input name="weight" type="number" placeholder="Weight (lbs)" required />
+            <input name="reps" type="number" placeholder="Reps" required />
+            <input name="title" type="text" placeholder="Title" required />
+            <input name="video" type="file" accept="video/*" required />
+            <button type="submit">Upload PR</button>
+          </form>
+        </TabPanel>
+
+        <TabPanel>
+          <h2>Progress to Next Rank</h2>
+          <p>Current Rank: {currentRank.name}</p>
+          <div style={{ background: "#333", borderRadius: 8, height: 20, overflow: "hidden" }}>
+            <div style={{ width: `${progressPercent}%`, background: "#00c853", height: "100%", transition: "width 0.5s" }}></div>
+          </div>
+          <p>{me.user.points} / {currentRank.max} points (Next: {nextRank.name})</p>
+          <p>Tip: Upload a PR for +100 pts!</p>
+        </TabPanel>
+
+        <TabPanel>
+          <h2>Leaderboard</h2>
+          <p>Top gainers: (Stub: 1. UserY - 1200 pts)</p>
+          {/* Fetch /api/leaderboard */}
+        </TabPanel>
+      </Tabs>
     </div>
-
-    {/* Welcome + Profile Summary */}
-    <div style={{ 
-      background: "#1a1a1a", 
-      padding: 24, 
-      borderRadius: 12, 
-      marginBottom: 40 
-    }}>
-      <h2 style={{ marginTop: 0 }}>Welcome back, {me?.user?.username || "User"}!</h2>
-      <p style={{ fontSize: 18, margin: "12px 0" }}>
-        Points: <strong>{me?.user?.points || 0}</strong> • Rank: <strong>{me?.user?.rank || "Rookie"}</strong>
-      </p>
-    </div>
-
-    {/* Upload Section */}
-    <div style={{ background: "#1a1a1a", padding: 24, borderRadius: 12 }}>
-      <h3 style={{ marginTop: 0 }}>Upload a New Video</h3>
-      
-      <form
-        onSubmit={async (e) => {
-          e.preventDefault();
-          const formData = new FormData(e.target);
-          
-          const r = await api("/api/videos", {
-            method: "POST",
-            body: formData,
-            auth: true
-          });
-          
-          console.log("Upload response:", r);
-          
-          if (r.ok) {
-            alert("Video uploaded! 🎉");
-            refreshAll(); // update points if needed
-            e.target.reset();
-          } else {
-            alert("Upload failed: " + (r.data?.error || "Check console for details"));
-          }
-        }}
-        style={{ display: "grid", gap: 20 }}
-      >
-        <div>
-          <label style={{ display: "block", marginBottom: 8, fontWeight: "bold" }}>
-            Video Title
-          </label>
-          <input
-            type="text"
-            name="title"
-            placeholder="Enter a cool title..."
-            required
-            style={{ 
-              width: "100%", 
-              padding: 12, 
-              borderRadius: 8, 
-              border: "1px solid #444", 
-              background: "#222", 
-              color: "white" 
-            }}
-          />
-        </div>
-
-        <div>
-          <label style={{ display: "block", marginBottom: 8, fontWeight: "bold" }}>
-            Choose Video
-          </label>
-          <input
-            type="file"
-            name="video"
-            accept="video/*"
-            required
-            style={{ 
-              width: "100%", 
-              padding: 12, 
-              background: "#222", 
-              color: "white", 
-              border: "1px solid #444", 
-              borderRadius: 8 
-            }}
-          />
-        </div>
-
-        <button
-          type="submit"
-          style={{
-            padding: 16,
-            background: "#00c853",
-            color: "white",
-            border: "none",
-            borderRadius: 8,
-            fontSize: 18,
-            fontWeight: "bold",
-            cursor: "pointer"
-          }}
-        >
-          Upload Video
-        </button>
-      </form>
-    </div>
-
-    {/* Optional: Add more sections later */}
-    <div style={{ marginTop: 40, textAlign: "center", color: "#aaa" }}>
-      <p>More coming soon: Watch videos, like, comment...</p>
-    </div>
-  </div>
-);
+  );
 }
-console.log("API base:", API);
-<div style={{ marginTop: 40 }}>
-  <h3>Upload a Video</h3>
-  
-  <form 
-    onSubmit={async (e) => {
-      e.preventDefault();
-      const formData = new FormData(e.target);
-      const r = await api("/api/videos", {  // <-- change to your actual upload endpoint
-        method: "POST",
-        body: formData,
-        auth: true
-      });
-      if (r.ok) {
-        alert("Video uploaded!");
-        // optional: refresh video list or points
-        refreshAll();
-      } else {
-        alert("Upload failed: " + (r.data?.error || "Unknown error"));
-      }
-    }}
-    style={{ display: "grid", gap: 12, maxWidth: 400 }}
-  >
-    <input 
-      type="text" 
-      name="title" 
-      placeholder="Video title" 
-      required 
-      style={{ padding: 10, borderRadius: 8 }}
-    />
-    
-    <input 
-      type="file" 
-      name="video" 
-      accept="video/*" 
-      required 
-      style={{ padding: 10 }}
-    />
-    
-    <button 
-      type="submit" 
-      style={{ padding: 12, background: "#4CAF50", color: "white", border: "none", borderRadius: 8 }}
-    >
-      Upload Video
-    </button>
-  </form>
-</div>
