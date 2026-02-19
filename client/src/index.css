@@ -1,4 +1,65 @@
-:root {
+:root{
+  --bg1:#0b1220;
+  --bg2:#0a0f1a;
+  --card: rgba(255,255,255,0.06);
+  --card2: rgba(255,255,255,0.10);
+  --border: rgba(255,255,255,0.12);
+  --text: rgba(255,255,255,0.92);
+  --muted: rgba(255,255,255,0.65);
+  --accent:#7c5cff;
+}
+
+body{
+  background: radial-gradient(1200px 600px at 20% -10%, rgba(124,92,255,0.35), transparent 55%),
+              radial-gradient(900px 500px at 85% 0%, rgba(0,196,255,0.25), transparent 55%),
+              linear-gradient(180deg, var(--bg1), var(--bg2));
+  color: var(--text);
+}
+
+.card{
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  padding: 14px;
+  box-shadow: 0 10px 30px rgba(0,0,0,0.25);
+  backdrop-filter: blur(10px);
+}
+
+.card:hover{
+  background: var(--card2);
+}
+
+button{
+  border-radius: 12px;
+  border: 1px solid var(--border);
+  background: rgba(255,255,255,0.06);
+  color: var(--text);
+  padding: 10px 12px;
+}
+
+button:hover{
+  border-color: rgba(124,92,255,0.6);
+  background: rgba(124,92,255,0.14);
+}
+
+:root{
+  --bg1:#0b1220;
+  --bg2:#0a0f1a;
+  --card: rgba(255,255,255,0.06);
+  --card2: rgba(255,255,255,0.10);
+  --border: rgba(255,255,255,0.12);
+  --text: rgba(255,255,255,0.92);
+  --muted: rgba(255,255,255,0.65);
+  --accent:#7c5cff; /* nice purple */
+}
+body{
+  background: radial-gradient(1200px 600px at 20% -10%, rgba(124,92,255,0.35), transparent 55%),
+              radial-gradient(900px 500px at 85% 0%, rgba(0,196,255,0.25), transparent 55%),
+              linear-gradient(180deg, var(--bg1), var(--bg2));
+  color: var(--text);
+}
+
+root {
   color-scheme: dark;
 }
 
@@ -196,4 +257,103 @@ input[type="file"] { color: #aaa; }
   gap: 10px;
   flex-wrap: wrap;
   align-items: center;
+}
+/* ===== Mobile Layout Fix ===== */
+@media (max-width: 768px) {
+  .layout {
+    flex-direction: column;
+  }
+
+  .sidebar {
+    width: 100%;
+    padding: 12px;
+    height: auto;
+  }
+
+  .sidebar h1 {
+    font-size: 20px;
+    margin-bottom: 10px;
+  }
+
+  .sidebar button {
+    padding: 8px;
+    font-size: 14px;
+  }
+
+  .content {
+    width: 100%;
+    padding: 12px;
+  }
+}
+.card{
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  padding: 14px;
+  box-shadow: 0 10px 30px rgba(0,0,0,0.25);
+  backdrop-filter: blur(10px);
+}
+.card:hover{
+  background: var(--card2);
+}
+button{
+  border-radius: 12px;
+  border: 1px solid var(--border);
+  background: rgba(255,255,255,0.06);
+  color: var(--text);
+  padding: 10px 12px;
+}
+button:hover{
+  border-color: rgba(124,92,255,0.6);
+  background: rgba(124,92,255,0.14);
+}
+
+/* ===== Mobile polish for GymTube ===== */
+@media (max-width: 900px) {
+  /* Switch from sidebar + content to stacked */
+  body {
+    overflow-x: hidden;
+  }
+
+  /* Your App root is a grid container inline-styled.
+     This makes it behave nicely on mobile. */
+  #root > div {
+    grid-template-columns: 1fr !important;
+  }
+
+  /* Sidebar becomes a top bar */
+  #root aside {
+    position: sticky;
+    top: 0;
+    z-index: 50;
+    border-right: none !important;
+    border-bottom: 1px solid rgba(255,255,255,0.12);
+  }
+
+  /* Reduce sidebar spacing */
+  #root aside h2 {
+    margin-bottom: 10px;
+  }
+
+  /* Buttons become a horizontal row that wraps */
+  #root aside > div:nth-of-type(2) {
+    display: flex !important;
+    flex-wrap: wrap;
+    gap: 10px;
+  }
+
+  #root aside button {
+    flex: 1 1 calc(50% - 10px);
+    min-height: 44px;
+  }
+
+  /* Main padding tighter */
+  #root main {
+    padding: 14px !important;
+  }
+
+  /* Cards full width */
+  .card {
+    max-width: 100% !important;
+  }
 }
