@@ -265,3 +265,17 @@ app.get('*', (req, res) => {
 app.get('*', (req, res) => {
   res.sendFile(path.join(__dirname, '../client/dist/index.html'));
 });
+// ... all your other routes and middleware above ...
+
+// Serve static files from the built React frontend
+app.use(express.static(path.join(__dirname, '../client/dist')));
+
+// Catch-all route for React Router (serve index.html for all non-API paths)
+app.get('*', (req, res) => {
+  res.sendFile(path.join(__dirname, '../client/dist/index.html'));
+});
+
+const PORT = process.env.PORT || 4000;
+app.listen(PORT, '0.0.0.0', () => {
+  console.log(`Server running on port ${PORT}`);
+});
