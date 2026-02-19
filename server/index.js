@@ -19,22 +19,66 @@ console.log("BOOT VERSION: v1000 ✅");
 /* ------------------ CORS ------------------ */
 const ALLOWED_ORIGINS = [
   "http://localhost:5173",
-  "https://mini-youtube-tawny.vercel.app", // ✅ YOUR FRONTEND
+  "http://localhost:3000",                // common vite/react dev ports
+  "http://localhost:5174",                // just in case
+  "https://mini-youtube-tawny.vercel.app",
+  "https://mini-youtube-tawny.vercel.app/" // with trailing slash variant
 ];
 
 const corsOptions = {
-  origin: (origin, cb) => {
-    if (!origin) return cb(null, true); // allow curl / render health checks
-    if (ALLOWED_ORIGINS.includes(origin)) return cb(null, true);
-    return cb(new Error("CORS blocked: " + origin));
+  origin: (origin, callback) => {
+    if (!origin) {
+      return callback(null, true); // allow non-browser (curl, Render health, etc.)
+    }
+
+    // Normalize origin (remove trailing slash)
+    const normalizedOrigin = origin.replace(/\/$/, "");
+
+    if (ALLOWED_ORIGINS.includes(normalizedOrigin)) {
+      console.log(`CORS ALLOWED origin: ${origin}`);
+      return callback(null, origin); // reflect exact origin
+    }
+
+    console.log(`CORS REJECTED origin: ${origin}`);
+    // For production: uncomment next line to strictly block
+    // return callback(new Error(`Not allowed by CORS: ${origin}`), false);
+
+    // TEMP DEBUG: allow anyway so we can see if headers arrive
+    return callback(null, origin);
   },
   credentials: true,
   methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
   allowedHeaders: ["Content-Type", "Authorization"],
+  optionsSuccessStatus: 200,     // Some browsers/legacy need 200 instead of 204
+  maxAge: 86400                  // Cache preflight 24 hours
 };
 
+// Apply CORS middleware
 app.use(cors(corsOptions));
-app.options(/.*/, cors(corsOptions));
+
+// CRITICAL: Explicitly handle ALL OPTIONS preflights early (fixes Render proxy issues)
+app.options("*", (req, res) => {
+  const origin = req.headers.origin;
+
+  console.log(`[OPTIONS] Preflight request received from origin: ${origin || "no-origin"}`);
+
+  let allowedOrigin = "*"; // fallback for debug
+
+  if (origin) {
+    const normalized = origin.replace(/\/$/, "");
+    if (ALLOWED_ORIGINS.includes(normalized)) {
+      allowedOrigin = origin;
+    }
+  }
+
+  res.setHeader("Access-Control-Allow-Origin", allowedOrigin);
+  res.setHeader("Access-Control-Allow-Credentials", "true");
+  res.setHeader("Access-Control-Allow-Methods", "GET, POST, PUT, PATCH, DELETE, OPTIONS");
+  res.setHeader("Access-Control-Allow-Headers", "Content-Type, Authorization");
+  res.setHeader("Access-Control-Max-Age", "86400");
+
+  return res.status(204).end(); // Standard preflight response
+});
 
 /* ------------------ middleware ------------------ */
 app.use(express.json());
