@@ -1,3 +1,4 @@
+import { useEffect, useState } from "react";
 import { Tab, Tabs, TabList, TabPanel } from 'react-tabs';
 import 'react-tabs/style/react-tabs.css';  // basic styles, customize later
 import { IconHome, IconUpload, IconChartBar, IconTrophy } from '@tabler/icons-react';const API = import.meta.env.VITE_API_URL || "";
@@ -5,7 +6,7 @@ import { IconHome, IconUpload, IconChartBar, IconTrophy } from '@tabler/icons-re
 function getToken() { /* keep as is */ }
 function setToken(t) { /* keep as is */ }
 function clearToken() { /* keep as is */ }
-
+import { useNavigate } from "react-router-dom";
 async function api(path, { method = "GET", body, auth = false } = {}) { /* keep as is */ }
 
 // Ranks definition (points thresholds)
