@@ -222,29 +222,144 @@ const r = await api("/api/auth/me", { auth: true });
     );
   }
 
-  // home page
-  return (
-    <div style={{ maxWidth: 800, margin: "60px auto", fontFamily: "Arial" }}>
-      <div style={{ display: "flex", justifyContent: "space-between" }}>
-        <h2>Home</h2>
-        <button onClick={logout}>Logout</button>
-      </div>
-
-      <div style={{ marginTop: 14 }}>
-        <p>Token exists ✅</p>
-
-        <div style={{ marginTop: 16 }}>
-         <h3>/api/auth/me result:</h3>
-          <pre style={{ background: "#f4f4f4", padding: 12 }}>
-            {JSON.stringify(me, null, 2)}
-          </pre>
-        </div>
-
-        <button style={{ marginTop: 12 }} onClick={refreshAll}>
-          Refresh
-        </button>
-      </div>
+// home page
+return (
+  <div style={{ maxWidth: 800, margin: "60px auto", fontFamily: "Arial" }}>
+    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+      <h2>Home – Welcome, {me?.user?.username || "User"}!</h2>
+      <button
+        onClick={logout}
+        style={{ padding: "8px 16px", background: "#e74c3c", color: "white", border: "none", borderRadius: 8 }}
+      >
+        Logout
+      </button>
     </div>
-  );
+
+    <div style={{ marginTop: 20, padding: 16, background: "#1e1e1e", borderRadius: 12 }}>
+      <h3>Your Profile</h3>
+      <pre style={{ background: "#2d2d2d", padding: 12, borderRadius: 8, overflow: "auto" }}>
+        {JSON.stringify(me, null, 2)}
+      </pre>
+      <p>Points: <strong>{me?.user?.points || 0}</strong> | Rank: <strong>{me?.user?.rank || "Unknown"}</strong></p>
+    </div>
+
+    {/* ──────────────────────────────────────────────── */}
+    {/*               VIDEO UPLOAD FORM                  */}
+    {/* ──────────────────────────────────────────────── */}
+    <div style={{ marginTop: 40 }}>
+      <h3>Upload a Video</h3>
+      
+      <form
+        onSubmit={async (e) => {
+          e.preventDefault();
+          const formData = new FormData(e.target);
+          
+          const r = await api("/api/videos", {
+            method: "POST",
+            body: formData,
+            auth: true
+          });
+          console.log("Upload response:", r);
+          if (r.ok) {
+            alert("Video uploaded successfully!");
+            refreshAll();
+            e.target.reset();
+          } else {
+            alert("Upload failed: " + (r.data?.error || r.data?.message || "Unknown error " + r.status));
+          }
+        }}
+        style={{ display: "grid", gap: 16, maxWidth: 500, marginTop: 16 }}
+      >
+        <div>
+          <label style={{ display: "block", marginBottom: 6 }}>Video Title</label>
+          <input
+            type="text"
+            name="title"
+            placeholder="My awesome video"
+            required
+            style={{ width: "100%", padding: 12, borderRadius: 8, border: "1px solid #444" }}
+          />
+        </div>
+        <div>
+          <label style={{ display: "block", marginBottom: 6 }}>Choose Video File</label>
+          <input
+            type="file"
+            name="video"
+            accept="video/*"
+            required
+            style={{ width: "100%", padding: 8 }}
+          />
+        </div>
+        <button
+          type="submit"
+          style={{
+            padding: 14,
+            background: "#4CAF50",
+            color: "white",
+            border: "none",
+            borderRadius: 8,
+            fontSize: 16,
+            cursor: "pointer"
+          }}
+        >
+          Upload Video
+        </button>
+      </form>
+    </div>
+
+    <button
+      style={{ marginTop: 32, padding: 10, background: "#3498db", color: "white", border: "none", borderRadius: 8 }}
+      onClick={refreshAll}
+    >
+      Refresh Profile
+    </button>
+  </div>
+);
 }
 console.log("API base:", API);
+<div style={{ marginTop: 40 }}>
+  <h3>Upload a Video</h3>
+  
+  <form 
+    onSubmit={async (e) => {
+      e.preventDefault();
+      const formData = new FormData(e.target);
+      const r = await api("/api/videos", {  // <-- change to your actual upload endpoint
+        method: "POST",
+        body: formData,
+        auth: true
+      });
+      if (r.ok) {
+        alert("Video uploaded!");
+        // optional: refresh video list or points
+        refreshAll();
+      } else {
+        alert("Upload failed: " + (r.data?.error || "Unknown error"));
+      }
+    }}
+    style={{ display: "grid", gap: 12, maxWidth: 400 }}
+  >
+    <input 
+      type="text" 
+      name="title" 
+      placeholder="Video title" 
+      required 
+      style={{ padding: 10, borderRadius: 8 }}
+    />
+    
+    <input 
+      type="file" 
+      name="video" 
+      accept="video/*" 
+      required 
+      style={{ padding: 10 }}
+    />
+    
+    <button 
+      type="submit" 
+      style={{ padding: 12, background: "#4CAF50", color: "white", border: "none", borderRadius: 8 }}
+    >
+      Upload Video
+    </button>
+  </form>
+</div>
