@@ -19,10 +19,8 @@ console.log("BOOT VERSION: v1000 ✅");
 /* ------------------ CORS ------------------ */
 const ALLOWED_ORIGINS = [
   "http://localhost:5173",
-  "http://localhost:3000",                // common vite/react dev ports
-  "http://localhost:5174",                // just in case
   "https://mini-youtube-tawny.vercel.app",
-  "https://mini-youtube-tawny.vercel.app/" // with trailing slash variant
+  "https://mini-youtube-h6ex.onrender.com",
 ];
 
 const corsOptions = {
@@ -39,6 +37,7 @@ const corsOptions = {
       return callback(null, origin); // reflect exact origin
     }
 
+
     console.log(`CORS REJECTED origin: ${origin}`);
     // For production: uncomment next line to strictly block
     // return callback(new Error(`Not allowed by CORS: ${origin}`), false);
@@ -54,7 +53,7 @@ const corsOptions = {
 };
 
 // Apply CORS middleware
-app.use(cors(corsOptions));
+app.options(/.*/, cors(corsOptions));
 
 // CRITICAL: Explicitly handle ALL OPTIONS preflights early (fixes Render proxy issues)
 app.options("*", (req, res) => {
