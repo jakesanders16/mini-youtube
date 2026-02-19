@@ -1,8 +1,8 @@
 import { useState, useEffect } from "react";
+import { BrowserRouter as Router, Routes, Route, useNavigate } from "react-router-dom";
 import { Tab, Tabs, TabList, TabPanel } from 'react-tabs';
 import 'react-tabs/style/react-tabs.css';
 import { IconHome, IconUpload, IconChartBar, IconTrophy } from '@tabler/icons-react';
-import { useNavigate } from "react-router-dom";
 
 const API = import.meta.env.VITE_API_URL || "";
 
@@ -57,7 +57,7 @@ async function api(path, { method = "GET", body, auth = false } = {}) {
   }
 }
 
-// Ranks definition
+// Ranks
 const RANKS = [
   { name: "Rookie", min: 0, max: 99 },
   { name: "Pro", min: 100, max: 499 },
@@ -66,7 +66,8 @@ const RANKS = [
 ];
 
 // Auth Page
-function AuthPage({ onLogin }) {
+function AuthPage() {
+  const navigate = useNavigate();
   const [mode, setMode] = useState("login");
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
@@ -89,12 +90,12 @@ function AuthPage({ onLogin }) {
     }
 
     if (!r.data?.token) {
-      setAuthMsg(`No token returned`);
+      setAuthMsg("No token returned");
       return;
     }
 
     setToken(r.data.token);
-    onLogin();
+    navigate("/home");
   }
 
   return (
@@ -143,19 +144,124 @@ function AuthPage({ onLogin }) {
   );
 }
 
+// Main Layout
+function MainLayout({ children, me, logout }) {
+  return (
+    <div style={{ display: "flex", flexDirection: "column", height: "100vh", background: "#0f0f0f", color: "white" }}>
+      {/* Top Nav */}
+      <div style={{ padding: "16px 24px", background: "#1a1a1a", borderBottom: "1px solid #333", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+        <h1 style={{ margin: 0, fontSize: 24, color: "#00c853" }}>Gains Arena</h1>
+        <div style={{ display: "flex", alignItems: "center", gap: 16 }}>
+          <span>Points: {me?.user?.points || 0}</span>
+          <button onClick={logout} style={{ padding: "8px 16px", background: "#ff4444", color: "white", border: "none", borderRadius: 8, cursor: "pointer" }}>
+            Logout
+          </button>
+        </div>
+      </div>
+
+      {/* Content */}
+      <div style={{ flex: 1, padding: 24, overflowY: "auto" }}>
+        {children}
+      </div>
+
+      {/* Bottom Tabs */}
+      <div style={{ background: "#1a1a1a", padding: "12px 0", borderTop: "1px solid #333" }}>
+        <TabList style={{ display: "flex", justifyContent: "space-around" }}>
+          <Tab><IconHome size={24} /> Home</Tab>
+          <Tab><IconUpload size={24} /> Upload</Tab>
+          <Tab><IconChartBar size={24} /> Progress</Tab>
+          <Tab><IconTrophy size={24} /> Leaderboard</Tab>
+        </TabList>
+      </div>
+    </div>
+  );
+}
+
+// Home Page
+function HomePage() {
+  return (
+    <div>
+      <h2>Home Feed</h2>
+      <p>Latest workout videos from the community. Like/comment to earn points!</p>
+      {/* Add video list here later */}
+    </div>
+  );
+}
+
+// Upload Page
+function UploadPage({ me, refreshMe }) {
+  const [error, setError] = useState("");
+
+  async function handleSubmit(e) {
+    e.preventDefault();
+    const formData = new FormData(e.target);
+
+    const r = await api("/api/videos", { method: "POST", body: formData, auth: true });
+    if (r.ok) {
+      alert("Video uploaded successfully!");
+      refreshMe();
+      e.target.reset();
+    } else {
+      setError(r.data?.error || "Upload failed");
+    }
+  }
+
+  return (
+    <div>
+      <h2>Upload a Video</h2>
+      <p>Share your workout and earn points!</p>
+      <form onSubmit={handleSubmit} style={{ display: "grid", gap: 16, maxWidth: 500 }}>
+        <input type="text" name="title" placeholder="Video Title" required style={{ padding: 12, borderRadius: 8, background: "#222", color: "white", border: "1px solid #444" }} />
+        <input type="file" name="video" accept="video/*" required style={{ padding: 12 }} />
+        <button type="submit" style={{ padding: 14, background: "#00c853", color: "white", border: "none", borderRadius: 8, fontWeight: "bold" }}>
+          Upload
+        </button>
+        {error && <p style={{ color: "#ff4444" }}>{error}</p>}
+      </form>
+    </div>
+  );
+}
+
+// Progress Page
+function ProgressPage({ me }) {
+  const currentRank = RANKS.find(r => me?.user?.points >= r.min && me?.user?.points < r.max) || RANKS[0];
+  const nextRank = RANKS[RANKS.indexOf(currentRank) + 1] || currentRank;
+  const progressPercent = ((me?.user?.points - currentRank.min) / (currentRank.max - currentRank.min)) * 100 || 0;
+
+  return (
+    <div>
+      <h2>Progress to Next Rank</h2>
+      <p>Current Rank: <strong>{currentRank.name}</strong></p>
+      <div style={{ background: "#333", borderRadius: 8, height: 20, overflow: "hidden", margin: "10px 0" }}>
+        <div style={{ width: `${progressPercent}%`, background: "#00c853", height: "100%", transition: "width 0.5s" }}></div>
+      </div>
+      <p>{me?.user?.points || 0} points / {currentRank.max} (Next: {nextRank.name})</p>
+      <p>Tip: Upload a PR for +100 points!</p>
+    </div>
+  );
+}
+
+// Leaderboard Page
+function LeaderboardPage() {
+  return (
+    <div>
+      <h2>Leaderboard</h2>
+      <p>Top gainers coming soon...</p>
+    </div>
+  );
+}
+
 // Main App
 export default function App() {
   const [me, setMe] = useState(null);
-  const [tabIndex, setTabIndex] = useState(0);
-  const [prHistory, setPrHistory] = useState([]);
   const navigate = useNavigate();
 
   useEffect(() => {
     const t = getToken();
     if (t) {
-      refreshMe();
-      fetchPrHistory();
-      navigate("/home");
+      refreshMe().then(() => navigate("/home"));
+    } else {
+      navigate("/");
     }
   }, []);
 
@@ -164,126 +270,45 @@ export default function App() {
     if (r.ok) setMe(r.data);
   }
 
-  async function fetchPrHistory() {
-    const r = await api("/api/my-prs", { auth: true });
-    if (r.ok) setPrHistory(r.data || []);
-  }
-
   function logout() {
     clearToken();
     setMe(null);
     navigate("/");
   }
 
-  function handleLogin() {
-    refreshMe();
-    navigate("/home");
-  }
-
   if (!getToken()) {
-    return <AuthPage onLogin={handleLogin} />;
+    return <AuthPage />;
   }
 
   if (!me) {
-    return <div style={{ padding: 40, color: "white" }}>Loading...</div>;
+    return <div style={{ padding: 40, color: "white", textAlign: "center" }}>Loading your gains...</div>;
   }
 
-  const currentRank = RANKS.find(r => me.user.points >= r.min && me.user.points < r.max) || RANKS[0];
-  const nextRank = RANKS[RANKS.indexOf(currentRank) + 1] || currentRank;
-  const progressPercent = ((me.user.points - currentRank.min) / (currentRank.max - currentRank.min)) * 100 || 0;
-
   return (
-    <div style={{ 
-      height: "100vh", 
-      background: "linear-gradient(#0f0f0f, #1a1a1a)", 
-      color: "white", 
-      fontFamily: "Arial, sans-serif",
-      padding: "20px 0"
-    }}>
-      {/* Top Header */}
-      <header style={{ textAlign: "center", marginBottom: 30 }}>
-        <h1 style={{ fontSize: 36, color: "#00c853" }}>Gains Arena</h1>
-        <p>Upload PRs, earn points, dominate the ranks!</p>
-      </header>
-
-      {/* Tabs */}
-      <Tabs selectedIndex={tabIndex} onSelect={setTabIndex} style={{ flex: 1 }}>
-        <TabList style={{ 
-          display: "flex", 
-          justifyContent: "space-around", 
-          background: "#1a1a1a", 
-          padding: "10px 0", 
-          borderRadius: 16, 
-          position: "fixed", 
-          bottom: 0, 
-          width: "100%" 
-        }}>
-          <Tab><IconHome /> Home</Tab>
-          <Tab><IconUpload /> Upload PR</Tab>
-          <Tab><IconChartBar /> Progress</Tab>
-          <Tab><IconTrophy /> Leaderboard</Tab>
-        </TabList>
-
-        <TabPanel>
-          <h2>Home Feed</h2>
-          <p>Latest workout videos from the community. Like/comment to give points!</p>
-          <div> (Stub: Video 1 - Bench PR by UserX ) </div>
-        </TabPanel>
-
-        <TabPanel>
-          <h2>Upload PR Video</h2>
-          <form onSubmit={async (e) => {
-            e.preventDefault();
-            const formData = new FormData(e.target);
-            const liftType = formData.get("liftType");
-            const weight = parseFloat(formData.get("weight"));
-            const reps = parseInt(formData.get("reps"));
-
-            const pastPr = prHistory.find(pr => pr.type === liftType);
-            const isNewPr = !pastPr || (weight * reps > pastPr.weight * pastPr.reps);
-            formData.append("isPr", isNewPr);
-
-            const r = await api("/api/videos", { method: "POST", body: formData, auth: true });
-            if (r.ok) {
-              alert(`Uploaded! ${isNewPr ? "New PR! +100 pts" : "+50 pts"}`);
-              refreshMe();
-              fetchPrHistory();
-            } else {
-              alert("Failed: " + r.data?.error);
-            }
-          }}>
-            <select name="liftType" required style={{ width: "100%", padding: 12, marginBottom: 12 }}>
-              <option value="">Choose Lift Type</option>
-              <option value="bench">Bench Press</option>
-              <option value="squat">Squat</option>
-              <option value="deadlift">Deadlift</option>
-              <option value="other">Other</option>
-            </select>
-            <input name="weight" type="number" placeholder="Weight (lbs)" required style={{ width: "100%", padding: 12, marginBottom: 12 }} />
-            <input name="reps" type="number" placeholder="Reps" required style={{ width: "100%", padding: 12, marginBottom: 12 }} />
-            <input name="title" type="text" placeholder="Title" required style={{ width: "100%", padding: 12, marginBottom: 12 }} />
-            <input name="video" type="file" accept="video/*" required style={{ width: "100%", padding: 12, marginBottom: 12 }} />
-            <button type="submit" style={{ padding: 14, background: "#00c853", color: "white", border: "none", borderRadius: 8, width: "100%" }}>
-              Upload PR
-            </button>
-          </form>
-        </TabPanel>
-
-        <TabPanel>
-          <h2>Progress to Next Rank</h2>
-          <p>Current Rank: {currentRank.name}</p>
-          <div style={{ background: "#333", borderRadius: 8, height: 20, overflow: "hidden", margin: "10px 0" }}>
-            <div style={{ width: `${progressPercent}%`, background: "#00c853", height: "100%", transition: "width 0.5s" }}></div>
-          </div>
-          <p>{me.user.points} / {currentRank.max} points (Next: {nextRank.name})</p>
-          <p>Tip: Upload a PR for +100 pts!</p>
-        </TabPanel>
-
-        <TabPanel>
-          <h2>Leaderboard</h2>
-          <p>Top gainers coming soon...</p>
-        </TabPanel>
-      </Tabs>
+    <div style={{ minHeight: "100vh", background: "#0f0f0f", color: "white" }}>
+      <Routes>
+        <Route path="/" element={<AuthPage />} />
+        <Route path="/home" element={
+          <MainLayout me={me} logout={logout}>
+            <HomePage />
+          </MainLayout>
+        } />
+        <Route path="/upload" element={
+          <MainLayout me={me} logout={logout}>
+            <UploadPage me={me} refreshMe={refreshMe} />
+          </MainLayout>
+        } />
+        <Route path="/progress" element={
+          <MainLayout me={me} logout={logout}>
+            <ProgressPage me={me} />
+          </MainLayout>
+        } />
+        <Route path="/leaderboard" element={
+          <MainLayout me={me} logout={logout}>
+            <LeaderboardPage />
+          </MainLayout>
+        } />
+      </Routes>
     </div>
   );
 }
