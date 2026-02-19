@@ -239,6 +239,13 @@ async function initDb() {
 
     /* ------------------ START ------------------ */
     const PORT = process.env.PORT || 10000;
+    // Serve the built React frontend (static files from client/dist)
+app.use(express.static(path.join(__dirname, '../client/dist')));
+
+// Catch-all route for React Router (SPA fallback)
+app.get('*', (req, res) => {
+  res.sendFile(path.join(__dirname, '../client/dist/index.html'));
+});
     app.listen(PORT, "0.0.0.0", () => {
       console.log(`Server listening on port ${PORT}`);
     });
@@ -246,5 +253,15 @@ async function initDb() {
     console.error("Fatal startup error:", err.message);
     console.error(err.stack);
     process.exit(1);
-  }
+  }// Serve the built React frontend (static files from client/dist)
+app.use(express.static(path.join(__dirname, '../client/dist')));
+
+// Catch-all route for React Router (SPA fallback)
+app.get('*', (req, res) => {
+  res.sendFile(path.join(__dirname, '../client/dist/index.html'));
+});
 })();
+// Serve React frontend for all non-API routes (SPA fallback)
+app.get('*', (req, res) => {
+  res.sendFile(path.join(__dirname, '../client/dist/index.html'));
+});
