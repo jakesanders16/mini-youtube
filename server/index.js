@@ -9,9 +9,6 @@ import jwt from "jsonwebtoken";
 import fs from "fs";
 import path from "path";
 
-const uploadsDir = path.join(process.cwd(), "uploads");
-if (!fs.existsSync(uploadsDir)) fs.mkdirSync(uploadsDir, { recursive: true });
-
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
@@ -26,11 +23,40 @@ app.use(cors({
   credentials: true
 }));
 
-app.use(express.json());   // 👈 THIS WAS MISSING
+app.options("*", cors()); // ✅ THIS LINE FIXES IT
+app.use(express.json());
 
 
+// ✅ CORS: allow your frontend + localhost
+const ALLOWED_ORIGINS = [
+  "http://localhost:5173",
+  "https://mini-youtube-h6ex.onrender.com",
+];
 
-const JWT_SECRET = process.env.JWT_SECRET || "dev-secret";
+// IMPORTANT: Handle preflight (OPTIONS) cleanly or requests hang
+app.use(
+  cors({
+    origin: function (origin, cb) {
+      // allow requests with no origin (like curl/postman)
+      if (!origin) return cb(null, true);
+      if (ALLOWED_ORIGINS.includes(origin)) return cb(null, true);
+      return cb(new Error("Not allowed by CORS: " + origin));
+    },
+    credentials: true,
+    methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
+    allowedHeaders: ["Content-Type", "Authorization"],
+  })
+);
+
+// ✅ respond to preflight requests for ALL routes
+app.options("*", cors());
+app.get("/", (req, res) => {
+  res.status(200).send("ok");
+});
+
+// ---------- uploads dir ----------
+const UPLOAD_DIR = path.join(__dirname, "uploads");
+if (!fs.existsSync(UPLOAD_DIR)) fs.mkdirSync(UPLOAD_DIR, { recursive: true });
 
 // ---------- Rank helper ----------
 function getRank(points = 0) {
@@ -42,9 +68,6 @@ function getRank(points = 0) {
 }
 
 // ---------- Upload storage ----------
-const UPLOAD_DIR = path.join(__dirname, "uploads");
-if (!fs.existsSync(UPLOAD_DIR)) fs.mkdirSync(UPLOAD_DIR);
-
 const storage = multer.diskStorage({
   destination: (_, __, cb) => cb(null, UPLOAD_DIR),
   filename: (_, file, cb) => {
@@ -56,13 +79,13 @@ const upload = multer({ storage });
 
 // ---------- DB ----------
 let db;
+
 async function initDb() {
   db = await open({
     filename: path.join(__dirname, "db.sqlite"),
     driver: sqlite3.Database,
   });
 
-  // Base tables
   await db.exec(`
     CREATE TABLE IF NOT EXISTS users (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -100,14 +123,17 @@ async function initDb() {
     );
   `);
 
-  // Safe migrations if you had an older DB without points
+  // migration safety
   try {
     await db.exec(`ALTER TABLE users ADD COLUMN points INTEGER DEFAULT 0;`);
   } catch {}
 }
+
 await initDb();
 
-// ---------- Auth helpers ----------
+// ---------- JWT ----------
+const JWT_SECRET = process.env.JWT_SECRET || "dev-secret";
+
 function makeToken(user) {
   return jwt.sign({ id: user.id, username: user.username }, JWT_SECRET, {
     expiresIn: "7d",
@@ -148,9 +174,9 @@ app.post("/api/auth/register", async (req, res) => {
       0
     );
     const user = { id: r.lastID, username: username.trim() };
-    res.json({ token: makeToken(user), user });
+    return res.json({ token: makeToken(user), user });
   } catch {
-    res.status(400).json({ error: "username already taken" });
+    return res.status(400).json({ error: "username already taken" });
   }
 });
 
@@ -170,12 +196,16 @@ app.post("/api/auth/login", async (req, res) => {
   if (!ok) return res.status(401).json({ error: "invalid login" });
 
   const user = { id: row.id, username: row.username };
-  res.json({ token: makeToken(user), user });
+  return res.json({ token: makeToken(user), user });
 });
 
 app.get("/api/auth/me", auth, async (req, res) => {
-  const u = await db.get("SELECT id, username, points FROM users WHERE id=?", req.user.id);
-  res.json({
+  const u = await db.get(
+    "SELECT id, username, points FROM users WHERE id=?",
+    req.user.id
+  );
+
+  return res.json({
     user: {
       id: u.id,
       username: u.username,
@@ -195,7 +225,7 @@ app.get("/api/videos", async (_, res) => {
     ORDER BY v.id DESC
   `);
 
-  res.json(
+  return res.json(
     rows.map((r) => ({
       ...r,
       rank: getRank(r.points || 0),
@@ -220,10 +250,9 @@ app.post("/api/upload", auth, upload.single("video"), async (req, res) => {
     req.user.id
   );
 
-  // +10 points for uploading
   await db.run("UPDATE users SET points = points + 10 WHERE id=?", req.user.id);
 
-  res.json({ id: result.lastID });
+  return res.json({ id: result.lastID });
 });
 
 // ---------- STREAM ----------
@@ -280,7 +309,7 @@ app.post("/api/videos/:id/like", auth, async (req, res) => {
     videoId,
     new Date().toISOString()
   );
-  res.json({ liked: true });
+  return res.json({ liked: true });
 });
 
 app.get("/api/videos/:id/likes", async (req, res) => {
@@ -288,7 +317,7 @@ app.get("/api/videos/:id/likes", async (req, res) => {
     "SELECT COUNT(*) AS count FROM likes WHERE video_id=?",
     req.params.id
   );
-  res.json({ likes: row?.count || 0 });
+  return res.json({ likes: row?.count || 0 });
 });
 
 // ---------- COMMENTS ----------
@@ -304,12 +333,14 @@ app.get("/api/videos/:id/comments", async (req, res) => {
   `,
     req.params.id
   );
-  res.json(rows);
+  return res.json(rows);
 });
 
 app.post("/api/videos/:id/comments", auth, async (req, res) => {
   const { text } = req.body || {};
-  if (!text || !text.trim()) return res.status(400).json({ error: "Empty comment" });
+  if (!text || !text.trim()) {
+    return res.status(400).json({ error: "Empty comment" });
+  }
 
   const r = await db.run(
     "INSERT INTO comments (user_id, video_id, text, created_at) VALUES (?, ?, ?, ?)",
@@ -318,18 +349,16 @@ app.post("/api/videos/:id/comments", auth, async (req, res) => {
     text.trim(),
     new Date().toISOString()
   );
-  res.json({ id: r.lastID });
+  return res.json({ id: r.lastID });
 });
 
-// ---------- Start ----------
-
-
+// ---------- LEADERBOARD ----------
 app.get("/api/leaderboard", async (_, res) => {
   const rows = await db.all(
     "SELECT id, username, points FROM users ORDER BY points DESC, id ASC LIMIT 25"
   );
 
-  res.json(
+  return res.json(
     rows.map((u, i) => ({
       place: i + 1,
       id: u.id,
@@ -339,7 +368,9 @@ app.get("/api/leaderboard", async (_, res) => {
     }))
   );
 });
-const PORT = process.env.PORT || 4000;
+
+// ---------- START ----------
+const PORT = process.env.PORT || 10000;
 app.listen(PORT, () => {
   console.log("LISTEN VERSION: v999 ✅ PORT =", PORT);
 });
