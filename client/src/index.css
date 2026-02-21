@@ -401,3 +401,11 @@ button:hover{
     display: none !important;
   }
 }
+html, body, #root { height: 100%; margin: 0; background: #0b0b0b; }
+* { box-sizing: border-box; }
+
+/* iOS safe area */
+:root {
+  --safe-top: env(safe-area-inset-top);
+  --safe-bottom: env(safe-area-inset-bottom);
+}

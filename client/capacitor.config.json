@@ -1,0 +1,19 @@
+{
+  "appId": "com.jake.gainsarena",
+  "appName": "Gains Arena",
+  "webDir": "dist",
+  "server": {
+    "cleartext": true,
+    "allowNavigation": [
+      "mini-youtube-api-rgd4.onrender.com",
+      "mini-youtube-h6ex.onrender.com",
+      "localhost",
+      "127.0.0.1"
+    ]
+  },
+  "ios": {
+    "contentInset": "always",
+    "scrollEnabled": false,
+    "backgroundColor": "#0b0b0b"
+  }
+}
