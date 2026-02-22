@@ -1,4 +1,4 @@
-// RepRoom — server/index.js v9000
+// RepRoom — server/index.js v10000
 import express from "express";
 import cors from "cors";
 import multer from "multer";
@@ -14,7 +14,7 @@ import jwt from "jsonwebtoken";
 const __filename = fileURLToPath(import.meta.url);
 const __dirname  = path.dirname(__filename);
 const app = express();
-console.log("RepRoom API v9000 🏋️");
+console.log("RepRoom API v10000 🏋️");
 app.set("trust proxy", 1);
 app.use(express.json());
 
@@ -28,6 +28,7 @@ if (!fs.existsSync(UPLOAD_DIR)) fs.mkdirSync(UPLOAD_DIR,{recursive:true});
 app.use("/uploads", express.static(UPLOAD_DIR));
 const storage = multer.diskStorage({ destination:(_,__,cb)=>cb(null,UPLOAD_DIR), filename:(_,file,cb)=>cb(null,`${Date.now()}__${(file.originalname||"file").replace(/[^a-zA-Z0-9._-]/g,"_")}`) });
 const upload  = multer({storage, limits:{fileSize:500*1024*1024}});
+const uploadAvatar = multer({storage, limits:{fileSize:10*1024*1024}});
 
 const JWT_SECRET = process.env.JWT_SECRET || "dev-jwt-secret";
 const VOTE_SALT  = process.env.VOTE_SALT  || "dev-vote-salt";
@@ -50,6 +51,7 @@ async function initDb() {
       pro_expires_at TEXT,
       gym_id INTEGER,
       gender TEXT DEFAULT 'other',
+      push_token TEXT,
       created_at TEXT NOT NULL
     );
     CREATE TABLE IF NOT EXISTS gyms(
@@ -57,7 +59,10 @@ async function initDb() {
       name TEXT NOT NULL,
       city TEXT,
       state TEXT,
-      partner INTEGER DEFAULT 0
+      partner INTEGER DEFAULT 0,
+      verified INTEGER DEFAULT 0,
+      claimed_by INTEGER,
+      claimed_at TEXT
     );
     CREATE TABLE IF NOT EXISTS videos(
       id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -98,6 +103,15 @@ async function initDb() {
       points INTEGER DEFAULT 0,
       UNIQUE(user_id,month)
     );
+    CREATE TABLE IF NOT EXISTS monthly_winners(
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      user_id INTEGER NOT NULL,
+      month TEXT NOT NULL UNIQUE,
+      points INTEGER DEFAULT 0,
+      username TEXT,
+      avatar_filename TEXT,
+      gym_name TEXT
+    );
     CREATE TABLE IF NOT EXISTS personal_bests(
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       user_id INTEGER NOT NULL,
@@ -106,6 +120,13 @@ async function initDb() {
       video_id INTEGER,
       set_at TEXT NOT NULL,
       UNIQUE(user_id,lift_type)
+    );
+    CREATE TABLE IF NOT EXISTS pr_history(
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      user_id INTEGER NOT NULL,
+      lift_type TEXT NOT NULL,
+      weight_lbs REAL NOT NULL,
+      set_at TEXT NOT NULL
     );
     CREATE TABLE IF NOT EXISTS saves(
       id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -135,24 +156,42 @@ async function initDb() {
       expires_at TEXT,
       created_at TEXT NOT NULL
     );
+    CREATE TABLE IF NOT EXISTS notifications(
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      user_id INTEGER NOT NULL,
+      type TEXT NOT NULL,
+      title TEXT NOT NULL,
+      body TEXT NOT NULL,
+      data TEXT,
+      read INTEGER DEFAULT 0,
+      created_at TEXT NOT NULL
+    );
     CREATE INDEX IF NOT EXISTS idx_vid_score ON videos(score DESC);
     CREATE INDEX IF NOT EXISTS idx_vid_created ON videos(created_at DESC);
+    CREATE INDEX IF NOT EXISTS idx_notif_user ON notifications(user_id,read,created_at DESC);
   `);
 
-  // Migrations for existing databases
-  const cols = await db.all("PRAGMA table_info(videos)");
-  const colNames = cols.map(c=>c.name);
-  if (!colNames.includes("reaction_count")) {
-    await db.exec("ALTER TABLE videos ADD COLUMN reaction_count INTEGER DEFAULT 0");
-    if (colNames.includes("like_count")) await db.exec("UPDATE videos SET reaction_count=like_count");
-  }
-  if (!colNames.includes("score")) await db.exec("ALTER TABLE videos ADD COLUMN score REAL DEFAULT 0");
+  // Migrations
+  const ucols = await db.all("PRAGMA table_info(users)");
+  const unames = ucols.map(c=>c.name);
+  if(!unames.includes("push_token")) await db.exec("ALTER TABLE users ADD COLUMN push_token TEXT");
 
-  // Ensure video_reactions table exists
-  await db.exec(`CREATE TABLE IF NOT EXISTS video_reactions(
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    video_id INTEGER NOT NULL,voter_key TEXT NOT NULL,user_id INTEGER,
-    emoji TEXT NOT NULL DEFAULT '💪',created_at TEXT NOT NULL,UNIQUE(video_id,voter_key))`);
+  const vcols = await db.all("PRAGMA table_info(videos)");
+  const vnames = vcols.map(c=>c.name);
+  if(!vnames.includes("reaction_count")) { await db.exec("ALTER TABLE videos ADD COLUMN reaction_count INTEGER DEFAULT 0"); if(vnames.includes("like_count")) await db.exec("UPDATE videos SET reaction_count=like_count"); }
+  if(!vnames.includes("score")) await db.exec("ALTER TABLE videos ADD COLUMN score REAL DEFAULT 0");
+
+  await db.exec(`CREATE TABLE IF NOT EXISTS video_reactions(id INTEGER PRIMARY KEY AUTOINCREMENT,video_id INTEGER NOT NULL,voter_key TEXT NOT NULL,user_id INTEGER,emoji TEXT NOT NULL DEFAULT '💪',created_at TEXT NOT NULL,UNIQUE(video_id,voter_key))`);
+  await db.exec(`CREATE TABLE IF NOT EXISTS pr_history(id INTEGER PRIMARY KEY AUTOINCREMENT,user_id INTEGER NOT NULL,lift_type TEXT NOT NULL,weight_lbs REAL NOT NULL,set_at TEXT NOT NULL)`);
+  await db.exec(`CREATE TABLE IF NOT EXISTS monthly_winners(id INTEGER PRIMARY KEY AUTOINCREMENT,user_id INTEGER NOT NULL,month TEXT NOT NULL UNIQUE,points INTEGER DEFAULT 0,username TEXT,avatar_filename TEXT,gym_name TEXT)`);
+  await db.exec(`CREATE TABLE IF NOT EXISTS notifications(id INTEGER PRIMARY KEY AUTOINCREMENT,user_id INTEGER NOT NULL,type TEXT NOT NULL,title TEXT NOT NULL,body TEXT NOT NULL,data TEXT,read INTEGER DEFAULT 0,created_at TEXT NOT NULL)`);
+
+  // Gym migrations
+  const gcols = await db.all("PRAGMA table_info(gyms)");
+  const gnames = gcols.map(c=>c.name);
+  if(!gnames.includes("verified")) await db.exec("ALTER TABLE gyms ADD COLUMN verified INTEGER DEFAULT 0");
+  if(!gnames.includes("claimed_by")) await db.exec("ALTER TABLE gyms ADD COLUMN claimed_by INTEGER");
+  if(!gnames.includes("claimed_at")) await db.exec("ALTER TABLE gyms ADD COLUMN claimed_at TEXT");
 
   // Seed gyms
   const gc = await db.get("SELECT COUNT(*) c FROM gyms");
@@ -176,7 +215,6 @@ const fmtVideo   = v => ({...v,url:`/uploads/${v.filename}`,avatar_url:v.avatar_
 const curMonth   = () => new Date().toISOString().slice(0,7);
 const daysLeft   = () => { const n=new Date(),e=new Date(n.getFullYear(),n.getMonth()+1,1); return Math.ceil((e-n)/86400000); };
 
-// Algorithm: comments worth 3x, reactions 1x, views log-scaled, all time-decayed
 async function updateScore(videoId) {
   const v = await db.get("SELECT comment_count,reaction_count,view_count,created_at FROM videos WHERE id=?", videoId);
   if (!v) return;
@@ -194,13 +232,30 @@ async function subPts(userId,pts) {
 }
 async function recalcPts(userId) {
   const rows = await db.all("SELECT reaction_count,comment_count FROM videos WHERE user_id=?",userId);
-  // 1pt per 5 reactions + 2pts per comment
   const total = rows.reduce((s,v)=>s+Math.floor(v.reaction_count/5)+(v.comment_count*2),0);
   await db.run("UPDATE users SET points=? WHERE id=?",total,userId);
   await db.run("INSERT INTO monthly_points(user_id,month,points) VALUES(?,?,?) ON CONFLICT(user_id,month) DO UPDATE SET points=excluded.points",userId,curMonth(),total);
 }
 
-app.get("/",           (_,res)=>res.send("RepRoom API v9000 🏋️"));
+// Create in-app notification
+async function notify(userId, type, title, body, data={}) {
+  if(!userId) return;
+  await db.run("INSERT INTO notifications(user_id,type,title,body,data,created_at) VALUES(?,?,?,?,?,?)",
+    userId, type, title, body, JSON.stringify(data), new Date().toISOString());
+}
+
+// Snapshot monthly winner (call at end of month or when viewing hall of fame)
+async function snapshotWinner() {
+  const month = curMonth();
+  const ex = await db.get("SELECT id FROM monthly_winners WHERE month=?", month);
+  if (ex) return;
+  const top = await db.get(`SELECT u.id,u.username,u.avatar_filename,g.name gym_name,COALESCE(m.points,0) pts FROM users u LEFT JOIN monthly_points m ON m.user_id=u.id AND m.month=? LEFT JOIN gyms g ON g.id=u.gym_id ORDER BY pts DESC LIMIT 1`, month);
+  if (top && top.pts > 0) {
+    await db.run("INSERT OR IGNORE INTO monthly_winners(user_id,month,points,username,avatar_filename,gym_name) VALUES(?,?,?,?,?,?)", top.id, month, top.pts, top.username, top.avatar_filename, top.gym_name);
+  }
+}
+
+app.get("/",           (_,res)=>res.send("RepRoom API v10000 🏋️"));
 app.get("/api/health", (_,res)=>res.json({ok:true}));
 
 /* ── AUTH ── */
@@ -231,19 +286,21 @@ app.post("/api/auth/login", async (req,res) => {
 app.get("/api/auth/me", requireAuth, async (req,res) => {
   const user=await db.get("SELECT * FROM users WHERE id=?",req.user.id);
   if(!user) return res.status(404).json({error:"Not found"});
-  res.json({user:safeUser(user)});
+  const unread=await db.get("SELECT COUNT(*) c FROM notifications WHERE user_id=? AND read=0",req.user.id);
+  res.json({user:safeUser(user),unread_notifications:unread.c||0});
 });
 
 app.put("/api/auth/me", requireAuth, async (req,res) => {
-  const {username,bio,gym_id,gender} = req.body||{};
+  const {username,bio,gym_id,gender,push_token} = req.body||{};
   const user=await db.get("SELECT * FROM users WHERE id=?",req.user.id);
   if(!user) return res.status(404).json({error:"Not found"});
   const newUsername = username?.trim()||user.username;
   const newBio = bio!==undefined ? bio : (user.bio||"");
   const newGym = gym_id!==undefined ? (gym_id?Number(gym_id):null) : user.gym_id;
   const newGender = ["male","female","other"].includes(gender) ? gender : (user.gender||"other");
+  const newPushToken = push_token||user.push_token;
   try{
-    await db.run("UPDATE users SET username=?,bio=?,gym_id=?,gender=? WHERE id=?",newUsername,newBio,newGym,newGender,req.user.id);
+    await db.run("UPDATE users SET username=?,bio=?,gym_id=?,gender=?,push_token=? WHERE id=?",newUsername,newBio,newGym,newGender,newPushToken,req.user.id);
     const updated=await db.get("SELECT * FROM users WHERE id=?",req.user.id);
     res.json({ok:true,user:safeUser(updated)});
   }catch(e){
@@ -252,14 +309,66 @@ app.put("/api/auth/me", requireAuth, async (req,res) => {
   }
 });
 
+// Avatar upload
+app.post("/api/auth/avatar", requireAuth, uploadAvatar.single("avatar"), async (req,res) => {
+  if(!req.file) return res.status(400).json({error:"No file"});
+  // Delete old avatar
+  const user=await db.get("SELECT avatar_filename FROM users WHERE id=?",req.user.id);
+  if(user?.avatar_filename) try{fs.unlinkSync(path.join(UPLOAD_DIR,user.avatar_filename));}catch{}
+  await db.run("UPDATE users SET avatar_filename=? WHERE id=?",req.file.filename,req.user.id);
+  const updated=await db.get("SELECT * FROM users WHERE id=?",req.user.id);
+  res.json({ok:true,user:safeUser(updated),avatar_url:`/uploads/${req.file.filename}`});
+});
+
+/* ── NOTIFICATIONS ── */
+app.get("/api/notifications", requireAuth, async (req,res) => {
+  const notifs=await db.all("SELECT * FROM notifications WHERE user_id=? ORDER BY created_at DESC LIMIT 50",req.user.id);
+  await db.run("UPDATE notifications SET read=1 WHERE user_id=?",req.user.id);
+  res.json({notifications:notifs});
+});
+
+app.get("/api/notifications/unread", requireAuth, async (req,res) => {
+  const r=await db.get("SELECT COUNT(*) c FROM notifications WHERE user_id=? AND read=0",req.user.id);
+  res.json({count:r.c||0});
+});
+
+/* ── SEARCH ── */
+app.get("/api/search", optAuth, async (req,res) => {
+  const q=(req.query.q||"").trim();
+  if(!q) return res.json({users:[],gyms:[]});
+  const users=await db.all(`SELECT u.id,u.username,u.avatar_filename,u.points,u.is_pro,u.gender,g.name gym_name FROM users u LEFT JOIN gyms g ON g.id=u.gym_id WHERE u.username LIKE ? ORDER BY u.points DESC LIMIT 20`,`%${q}%`);
+  const gyms=await db.all(`SELECT * FROM gyms WHERE name LIKE ? LIMIT 10`,`%${q}%`);
+  res.json({users:users.map(u=>({...u,avatar_url:u.avatar_filename?`/uploads/${u.avatar_filename}`:null})),gyms});
+});
+
 /* ── GYMS ── */
 app.get("/api/gyms", async (_,res) => {
-  res.json({gyms:await db.all("SELECT * FROM gyms ORDER BY partner DESC,name ASC")});
+  res.json({gyms:await db.all("SELECT * FROM gyms ORDER BY partner DESC,verified DESC,name ASC")});
 });
 
 app.get("/api/gyms/battle", async (_,res) => {
   const gyms=await db.all(`SELECT g.id,g.name,COALESCE(SUM(m.points),0) pts FROM gyms g JOIN users u ON u.gym_id=g.id LEFT JOIN monthly_points m ON m.user_id=u.id AND m.month=? GROUP BY g.id HAVING pts>0 ORDER BY pts DESC LIMIT 2`,curMonth());
   res.json({gyms,month:curMonth()});
+});
+
+// Gym claim
+app.post("/api/gyms/:id/claim", requireAuth, async (req,res) => {
+  const gymId=Number(req.params.id);
+  const gym=await db.get("SELECT * FROM gyms WHERE id=?",gymId);
+  if(!gym) return res.status(404).json({error:"Gym not found"});
+  if(gym.claimed_by) return res.status(400).json({error:"Already claimed"});
+  const user=await db.get("SELECT * FROM users WHERE id=?",req.user.id);
+  if(!user) return res.status(404).json({error:"User not found"});
+  await db.run("UPDATE gyms SET claimed_by=?,claimed_at=? WHERE id=?",req.user.id,new Date().toISOString(),gymId);
+  await db.run("UPDATE users SET is_pro=1 WHERE id=?",req.user.id);
+  res.json({ok:true,message:"Gym claimed! Pro badge awarded."});
+});
+
+/* ── HALL OF FAME ── */
+app.get("/api/halloffame", async (_,res) => {
+  await snapshotWinner();
+  const winners=await db.all("SELECT * FROM monthly_winners ORDER BY month DESC LIMIT 12");
+  res.json({winners:winners.map(w=>({...w,avatar_url:w.avatar_filename?`/uploads/${w.avatar_filename}`:null}))});
 });
 
 /* ── USERS ── */
@@ -269,10 +378,13 @@ app.get("/api/users/:id", optAuth, async (req,res) => {
   if(!user) return res.status(404).json({error:"Not found"});
   const videos=await db.all(`SELECT v.*,u.username,u.avatar_filename,g.name gym_name FROM videos v JOIN users u ON u.id=v.user_id LEFT JOIN gyms g ON g.id=u.gym_id WHERE v.user_id=? ORDER BY v.created_at DESC`,userId);
   const pbs=await db.all("SELECT * FROM personal_bests WHERE user_id=? ORDER BY lift_type",userId);
+  const prHistory=await db.all("SELECT * FROM pr_history WHERE user_id=? ORDER BY lift_type,set_at ASC",userId);
   const fc=await db.get("SELECT COUNT(*) c FROM follows WHERE following_id=?",userId);
   const mp=await db.get("SELECT points FROM monthly_points WHERE user_id=? AND month=?",userId,curMonth());
   const rank=await db.get("SELECT (SELECT COUNT(*)+1 FROM monthly_points WHERE month=? AND points>m.points) r FROM monthly_points m WHERE user_id=? AND month=?",curMonth(),userId,curMonth());
-  res.json({user:{...safeUser(user),followers:fc.c,monthly_points:mp?.points||0,monthly_rank:rank?.r||"—"},videos:videos.map(fmtVideo),pbs});
+  const isFollowing=req.user?!!(await db.get("SELECT id FROM follows WHERE follower_id=? AND following_id=?",req.user.id,userId)):false;
+  const gym=user.gym_id?await db.get("SELECT * FROM gyms WHERE id=?",user.gym_id):null;
+  res.json({user:{...safeUser(user),followers:fc.c,monthly_points:mp?.points||0,monthly_rank:rank?.r||"—"},videos:videos.map(fmtVideo),pbs,prHistory,isFollowing,gym});
 });
 
 app.post("/api/users/:id/follow", requireAuth, async (req,res) => {
@@ -280,24 +392,26 @@ app.post("/api/users/:id/follow", requireAuth, async (req,res) => {
   if(fid===req.user.id) return res.status(400).json({error:"Cannot follow yourself"});
   const ex=await db.get("SELECT id FROM follows WHERE follower_id=? AND following_id=?",req.user.id,fid);
   if(ex){ await db.run("DELETE FROM follows WHERE id=?",ex.id); res.json({ok:true,following:false}); }
-  else{ await db.run("INSERT INTO follows(follower_id,following_id,created_at) VALUES(?,?,?)",req.user.id,fid,new Date().toISOString()); res.json({ok:true,following:true}); }
+  else{
+    await db.run("INSERT INTO follows(follower_id,following_id,created_at) VALUES(?,?,?)",req.user.id,fid,new Date().toISOString());
+    const me=await db.get("SELECT username FROM users WHERE id=?",req.user.id);
+    await notify(fid,"follow","New Follower",`${me.username} started following you`,{user_id:req.user.id});
+    res.json({ok:true,following:true});
+  }
 });
 
 /* ── LEADERBOARD ── */
 app.get("/api/leaderboard", async (req,res) => {
   const {period="month",gender="all",gym_id=null,lift="all"} = req.query;
   const month=curMonth();
-
   if(lift&&lift!=="all"){
-    let q=`SELECT pb.user_id id,pb.lift_type,pb.weight_lbs pts,pb.set_at,u.username,u.avatar_filename,u.gender,g.name gym_name
-           FROM personal_bests pb JOIN users u ON u.id=pb.user_id LEFT JOIN gyms g ON g.id=u.gym_id WHERE pb.lift_type=?`;
+    let q=`SELECT pb.user_id id,pb.lift_type,pb.weight_lbs pts,pb.set_at,u.username,u.avatar_filename,u.gender,u.is_pro,g.name gym_name FROM personal_bests pb JOIN users u ON u.id=pb.user_id LEFT JOIN gyms g ON g.id=u.gym_id WHERE pb.lift_type=?`;
     const p=[lift];
     if(gender&&gender!=="all"){ q+=" AND u.gender=?"; p.push(gender); }
     q+=" ORDER BY pb.weight_lbs DESC LIMIT 50";
     const rows=await db.all(q,...p);
     return res.json({leaderboard:rows.map((r,i)=>({...r,rank:i+1,pts:r.weight_lbs,avatar_url:r.avatar_filename?`/uploads/${r.avatar_filename}`:null})),period:"lift",lift,gender,resets_in_days:null});
   }
-
   let rows;
   if (period==="alltime") {
     let q=`SELECT u.id,u.username,u.avatar_filename,u.points_alltime pts,u.is_pro,u.gym_id,u.gender,g.name gym_name,COUNT(v.id) video_count FROM users u LEFT JOIN gyms g ON g.id=u.gym_id LEFT JOIN videos v ON v.user_id=u.id`;
@@ -353,7 +467,10 @@ app.post("/api/videos", requireAuth, upload.single("video"), async (req,res) => 
   const r=await db.run("INSERT INTO videos(user_id,title,filename,mimetype,size,lift_type,weight_lbs,tags,score,created_at) VALUES(?,?,?,?,?,?,?,?,?,?)",req.user.id,title,f.filename,f.mimetype||"",f.size||0,lift_type,weight,tags,0,now);
   if(lift_type&&weight){
     const ex=await db.get("SELECT * FROM personal_bests WHERE user_id=? AND lift_type=?",req.user.id,lift_type);
-    if(!ex||ex.weight_lbs<weight) await db.run("INSERT INTO personal_bests(user_id,lift_type,weight_lbs,video_id,set_at) VALUES(?,?,?,?,?) ON CONFLICT(user_id,lift_type) DO UPDATE SET weight_lbs=excluded.weight_lbs,video_id=excluded.video_id,set_at=excluded.set_at",req.user.id,lift_type,weight,r.lastID,now);
+    if(!ex||ex.weight_lbs<weight){
+      await db.run("INSERT INTO personal_bests(user_id,lift_type,weight_lbs,video_id,set_at) VALUES(?,?,?,?,?) ON CONFLICT(user_id,lift_type) DO UPDATE SET weight_lbs=excluded.weight_lbs,video_id=excluded.video_id,set_at=excluded.set_at",req.user.id,lift_type,weight,r.lastID,now);
+      await db.run("INSERT INTO pr_history(user_id,lift_type,weight_lbs,set_at) VALUES(?,?,?,?)",req.user.id,lift_type,weight,now);
+    }
   }
   res.json({ok:true,video:{id:r.lastID,title,lift_type,weight_lbs:weight,url:`/uploads/${f.filename}`}});
 });
@@ -386,6 +503,10 @@ app.post("/api/videos/:id/react", optAuth, async (req,res) => {
   } else {
     await db.run("INSERT INTO video_reactions(video_id,voter_key,user_id,emoji,created_at) VALUES(?,?,?,?,?)",vid,vk,req.user?.id||null,emoji,now);
     await db.run("UPDATE videos SET reaction_count=reaction_count+1 WHERE id=?",vid);
+    if(req.user&&req.user.id!==video.user_id){
+      const me=await db.get("SELECT username FROM users WHERE id=?",req.user.id);
+      await notify(video.user_id,"reaction","New Reaction",`${me.username} reacted ${emoji} to your video`,{video_id:vid});
+    }
   }
   await recalcPts(video.user_id);
   await updateScore(vid);
@@ -406,8 +527,15 @@ app.post("/api/videos/:id/comments", requireAuth, async (req,res) => {
   const now=new Date().toISOString(),vid=Number(req.params.id);
   const r=await db.run("INSERT INTO comments(video_id,user_id,text,created_at) VALUES(?,?,?,?)",vid,req.user.id,text,now);
   await db.run("UPDATE videos SET comment_count=comment_count+1 WHERE id=?",vid);
-  const video=await db.get("SELECT user_id FROM videos WHERE id=?",vid);
-  if(video){await recalcPts(video.user_id);await updateScore(vid);}
+  const video=await db.get("SELECT user_id,title FROM videos WHERE id=?",vid);
+  if(video){
+    await recalcPts(video.user_id);
+    await updateScore(vid);
+    if(video.user_id!==req.user.id){
+      const me=await db.get("SELECT username FROM users WHERE id=?",req.user.id);
+      await notify(video.user_id,"comment","New Comment",`${me.username}: "${text.substring(0,60)}"`,{video_id:vid});
+    }
+  }
   const user=await db.get("SELECT username,avatar_filename FROM users WHERE id=?",req.user.id);
   res.json({ok:true,comment:{id:r.lastID,video_id:vid,user_id:req.user.id,text,created_at:now,username:user.username,avatar_url:user.avatar_filename?`/uploads/${user.avatar_filename}`:null}});
 });
@@ -425,33 +553,42 @@ app.get("/api/saves", requireAuth, async (req,res) => {
   res.json({videos:videos.map(fmtVideo)});
 });
 
-/* ── PERSONAL BESTS ── */
+/* ── PERSONAL BESTS & PR HISTORY ── */
 app.put("/api/pbs/:lift", requireAuth, async (req,res) => {
   const lift=req.params.lift,weight=parseFloat(req.body?.weight_lbs);
   if(!weight) return res.status(400).json({error:"Missing weight"});
-  await db.run("INSERT INTO personal_bests(user_id,lift_type,weight_lbs,set_at) VALUES(?,?,?,?) ON CONFLICT(user_id,lift_type) DO UPDATE SET weight_lbs=excluded.weight_lbs,set_at=excluded.set_at",req.user.id,lift,weight,new Date().toISOString());
+  const now=new Date().toISOString();
+  await db.run("INSERT INTO personal_bests(user_id,lift_type,weight_lbs,set_at) VALUES(?,?,?,?) ON CONFLICT(user_id,lift_type) DO UPDATE SET weight_lbs=excluded.weight_lbs,set_at=excluded.set_at",req.user.id,lift,weight,now);
+  await db.run("INSERT INTO pr_history(user_id,lift_type,weight_lbs,set_at) VALUES(?,?,?,?)",req.user.id,lift,weight,now);
   res.json({ok:true});
+});
+
+app.get("/api/users/:id/pr-history", async (req,res) => {
+  const rows=await db.all("SELECT * FROM pr_history WHERE user_id=? ORDER BY lift_type,set_at ASC",Number(req.params.id));
+  res.json({history:rows});
 });
 
 /* ── CHALLENGES ── */
 app.post("/api/challenges", requireAuth, async (req,res) => {
   const {opponent_id,lift_type,duration_days}=req.body||{};
   if(!opponent_id||!lift_type||!duration_days) return res.status(400).json({error:"Missing fields"});
-  const me=await db.get("SELECT points FROM users WHERE id=?",req.user.id);
+  const me=await db.get("SELECT points,username FROM users WHERE id=?",req.user.id);
   if(me.points<25) return res.status(400).json({error:"Need 25 pts to challenge"});
   await subPts(req.user.id,25);
   const now=new Date().toISOString(),exp=new Date(Date.now()+Number(duration_days)*86400000).toISOString();
   const r=await db.run("INSERT INTO challenges(challenger_id,opponent_id,lift_type,duration_days,pot_pts,status,expires_at,created_at) VALUES(?,?,?,?,50,'pending',?,?)",req.user.id,opponent_id,lift_type,duration_days,exp,now);
+  await notify(opponent_id,"challenge","⚔ Challenge Received!",`${me.username} challenged you to a ${lift_type} battle!`,{challenge_id:r.lastID});
   res.json({ok:true,challenge:{id:r.lastID,lift_type,status:"pending"}});
 });
 
 app.post("/api/challenges/:id/accept", requireAuth, async (req,res) => {
   const ch=await db.get("SELECT * FROM challenges WHERE id=?",Number(req.params.id));
   if(!ch||ch.opponent_id!==req.user.id||ch.status!=="pending") return res.status(400).json({error:"Invalid"});
-  const me=await db.get("SELECT points FROM users WHERE id=?",req.user.id);
+  const me=await db.get("SELECT points,username FROM users WHERE id=?",req.user.id);
   if(me.points<25) return res.status(400).json({error:"Need 25 pts"});
   await subPts(req.user.id,25);
   await db.run("UPDATE challenges SET status='active' WHERE id=?",ch.id);
+  await notify(ch.challenger_id,"challenge_accepted","Challenge Accepted!",`${me.username} accepted your ${ch.lift_type} challenge!`,{challenge_id:ch.id});
   res.json({ok:true});
 });
 
@@ -474,8 +611,19 @@ app.post("/api/challenges/:id/submit", requireAuth, async (req,res) => {
     const cv=await db.get("SELECT weight_lbs FROM videos WHERE id=?",up.challenger_video_id);
     const ov=await db.get("SELECT weight_lbs FROM videos WHERE id=?",up.opponent_video_id);
     const cw=cv?.weight_lbs||0,ow=ov?.weight_lbs||0;
-    if(cw===ow){await addPts(ch.challenger_id,25);await addPts(ch.opponent_id,25);await db.run("UPDATE challenges SET status='tie' WHERE id=?",ch.id);}
-    else{const win=cw>ow?ch.challenger_id:ch.opponent_id;await addPts(win,50);await db.run("UPDATE challenges SET status='complete',winner_id=? WHERE id=?",win,ch.id);}
+    if(cw===ow){
+      await addPts(ch.challenger_id,25);await addPts(ch.opponent_id,25);
+      await db.run("UPDATE challenges SET status='tie' WHERE id=?",ch.id);
+      await notify(ch.challenger_id,"challenge_result","Challenge Tied!","It's a tie! 25 pts returned.",{challenge_id:ch.id});
+      await notify(ch.opponent_id,"challenge_result","Challenge Tied!","It's a tie! 25 pts returned.",{challenge_id:ch.id});
+    } else {
+      const win=cw>ow?ch.challenger_id:ch.opponent_id;
+      const lose=win===ch.challenger_id?ch.opponent_id:ch.challenger_id;
+      await addPts(win,50);
+      await db.run("UPDATE challenges SET status='complete',winner_id=? WHERE id=?",win,ch.id);
+      await notify(win,"challenge_result","🏆 You Won!","You won the challenge and earned 50 pts!",{challenge_id:ch.id});
+      await notify(lose,"challenge_result","Challenge Lost","Better luck next time.",{challenge_id:ch.id});
+    }
   }
   res.json({ok:true});
 });
