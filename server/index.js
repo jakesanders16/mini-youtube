@@ -635,7 +635,7 @@ app.get("/api/challenges", requireAuth, async (req,res) => {
 
 app.use("/api",(_,res)=>res.status(404).json({error:"Not found"}));
 app.use(express.static(path.join(__dirname,"public/dist")));
-app.get("*",(_,res)=>res.sendFile(path.join(__dirname,"public/dist/index.html")));
+app.get("/{*path}",(_,res)=>res.sendFile(path.join(__dirname,"public/dist/index.html")));
 
 async function main(){
   await initDb();
