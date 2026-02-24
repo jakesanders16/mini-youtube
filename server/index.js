@@ -193,21 +193,12 @@ async function initDb() {
   if(!gnames.includes("claimed_by")) await db.exec("ALTER TABLE gyms ADD COLUMN claimed_by INTEGER");
   if(!gnames.includes("claimed_at")) await db.exec("ALTER TABLE gyms ADD COLUMN claimed_at TEXT");
 
-  // Wipe old gym/user data and reseed clean
-  await db.run("DELETE FROM users");
-  await db.run("DELETE FROM gyms");
-  await db.run("DELETE FROM videos");
-  await db.run("DELETE FROM challenges");
-  await db.run("DELETE FROM personal_bests");
-  await db.run("DELETE FROM pr_history");
-  await db.run("DELETE FROM follows");
-  await db.run("DELETE FROM comments");
-  await db.run("DELETE FROM video_reactions");
-  await db.run("DELETE FROM saves");
-  await db.run("DELETE FROM notifications");
-  await db.run("DELETE FROM monthly_winners");
-  await db.run("INSERT INTO gyms(name,city,state,partner,verified) VALUES(?,?,?,?,?)","LA Fitness","Port Chester","NY",1,1);
-  console.log("DB reset: LA Fitness Port Chester seeded.");
+  // One-time launch reset — only runs if gyms table is empty
+  const gc = await db.get("SELECT COUNT(*) c FROM gyms");
+  if (gc.c === 0) {
+    await db.run("INSERT INTO gyms(name,city,state,partner,verified) VALUES(?,?,?,?,?)","LA Fitness","Port Chester","NY",1,1);
+    console.log("Seeded: LA Fitness Port Chester.");
+  }
 }
 
 const requireAuth = (req,res,next) => { try{ const t=req.headers.authorization?.split(" ")[1]; if(!t) return res.status(401).json({error:"Auth required"}); req.user=jwt.verify(t,JWT_SECRET); next(); } catch{ res.status(401).json({error:"Invalid token"}); }};
