@@ -10,6 +10,7 @@ import { open } from "sqlite";
 import sqlite3 from "sqlite3";
 import bcrypt from "bcryptjs";
 import jwt from "jsonwebtoken";
+import { GoogleAuth } from "google-auth-library";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname  = path.dirname(__filename);
@@ -31,6 +32,38 @@ const upload  = multer({storage, limits:{fileSize:500*1024*1024}});
 const uploadAvatar = multer({storage, limits:{fileSize:10*1024*1024}});
 
 const JWT_SECRET = process.env.JWT_SECRET || "dev-jwt-secret";
+// ── FIREBASE PUSH ─────────────────────────────────────────────────────────────
+let _fcmToken = null; let _fcmExpiry = 0;
+async function getFcmToken() {
+  if (_fcmToken && Date.now() < _fcmExpiry) return _fcmToken;
+  try {
+    const sa = process.env.FIREBASE_SERVICE_ACCOUNT;
+    if (!sa) return null;
+    const creds = JSON.parse(sa);
+    const auth = new GoogleAuth({ credentials: creds, scopes: ["https://www.googleapis.com/auth/firebase.messaging"] });
+    const client = await auth.getClient();
+    const t = await client.getAccessToken();
+    _fcmToken = t.token; _fcmExpiry = Date.now() + 55 * 60 * 1000;
+    return _fcmToken;
+  } catch(e) { console.error("FCM token error:", e.message); return null; }
+}
+
+async function sendPush(pushToken, title, body, data={}) {
+  if (!pushToken) return;
+  try {
+    const sa = process.env.FIREBASE_SERVICE_ACCOUNT;
+    if (!sa) return;
+    const { project_id } = JSON.parse(sa);
+    const token = await getFcmToken();
+    if (!token) return;
+    await fetch(`https://fcm.googleapis.com/v1/projects/${project_id}/messages:send`, {
+      method: "POST",
+      headers: { "Authorization": `Bearer ${token}`, "Content-Type": "application/json" },
+      body: JSON.stringify({ message: { token: pushToken, notification: { title, body }, data: Object.fromEntries(Object.entries(data).map(([k,v])=>[k,String(v)])), apns: { payload: { aps: { sound: "default", badge: 1 } } } } })
+    });
+  } catch(e) { console.error("Push error:", e.message); }
+}
+
 const VOTE_SALT  = process.env.VOTE_SALT  || "dev-vote-salt";
 
 let db;
@@ -236,6 +269,10 @@ async function notify(userId, type, title, body, data={}) {
   if(!userId) return;
   await db.run("INSERT INTO notifications(user_id,type,title,body,data,created_at) VALUES(?,?,?,?,?,?)",
     userId, type, title, body, JSON.stringify(data), new Date().toISOString());
+  try {
+    const u = await db.get("SELECT push_token FROM users WHERE id=?", userId);
+    if (u?.push_token) await sendPush(u.push_token, title, body, data);
+  } catch(e) { console.error("notify push error:", e.message); }
 }
 
 // Snapshot monthly winner (call at end of month or when viewing hall of fame)
