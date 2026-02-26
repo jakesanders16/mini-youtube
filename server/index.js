@@ -436,7 +436,7 @@ app.get("/api/leaderboard", async (req,res) => {
   const {period="month",gender="all",gym_id=null,lift="all"} = req.query;
   const month=curMonth();
   if(lift&&lift!=="all"){
-    let q=`SELECT pb.user_id id,pb.lift_type,pb.weight_lbs pts,pb.set_at,u.username,u.avatar_filename,u.gender,u.is_pro,g.name gym_name FROM personal_bests pb JOIN users u ON u.id=pb.user_id LEFT JOIN gyms g ON g.id=u.gym_id WHERE pb.lift_type=?`;
+    let q=`SELECT pb.user_id id,pb.lift_type,pb.weight_lbs pts,pb.set_at,u.username,u.avatar_filename,u.gender,u.is_pro,g.name gym_name FROM personal_bests pb JOIN users u ON u.id=pb.user_id LEFT JOIN gyms g ON g.id=u.gym_id WHERE pb.lift_type=? COLLATE NOCASE`;
     const p=[lift];
     if(gender&&gender!=="all"){ q+=" AND u.gender=?"; p.push(gender); }
     q+=" ORDER BY pb.weight_lbs DESC LIMIT 50";
@@ -504,6 +504,8 @@ app.post("/api/videos", requireAuth, upload.single("video"), async (req,res) => 
       console.log(`PR set: user ${req.user.id} ${lift_type} ${weight}lbs`);
     }
   }
+  // Award points for posting
+  await addPts(req.user.id, 5);
   res.json({ok:true,video:{id:r.lastID,title,lift_type,weight_lbs:weight,url:`/uploads/${f.filename}`}});
 });
 
