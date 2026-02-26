@@ -453,11 +453,10 @@ app.get("/api/leaderboard", async (req,res) => {
     q+=" GROUP BY u.id ORDER BY u.points_alltime DESC LIMIT 50";
     rows=await db.all(q,...p);
   } else {
-    let q=`SELECT u.id,u.username,u.avatar_filename,COALESCE(m.points,0) pts,u.is_pro,u.gym_id,u.gender,g.name gym_name,COUNT(v.id) video_count FROM users u LEFT JOIN monthly_points m ON m.user_id=u.id AND m.month=? LEFT JOIN gyms g ON g.id=u.gym_id LEFT JOIN videos v ON v.user_id=u.id AND v.created_at>=?`;
+    let q=`SELECT u.id,u.username,u.avatar_filename,COALESCE(m.points,0) pts,u.is_pro,u.gym_id,u.gender,g.name gym_name,COUNT(v.id) video_count FROM users u LEFT JOIN monthly_points m ON m.user_id=u.id AND m.month=? LEFT JOIN gyms g ON g.id=u.gym_id LEFT JOIN videos v ON v.user_id=u.id AND v.created_at>=? WHERE 1=1`;
     const p=[month,`${month}-01`],wheres=[];
-    if(gender&&gender!=="all"){wheres.push("u.gender=?");p.push(gender);}
-    if(gym_id){wheres.push("u.gym_id=?");p.push(Number(gym_id));}
-    if(wheres.length) q+=" AND "+wheres.join(" AND ");
+    if(gender&&gender!=="all"){ q+=" AND u.gender=?"; p.push(gender); }
+    if(gym_id){ q+=" AND u.gym_id=?"; p.push(Number(gym_id)); }
     q+=" GROUP BY u.id ORDER BY pts DESC LIMIT 50";
     rows=await db.all(q,...p);
   }
@@ -498,9 +497,11 @@ app.post("/api/videos", requireAuth, upload.single("video"), async (req,res) => 
   const r=await db.run("INSERT INTO videos(user_id,title,filename,mimetype,size,lift_type,weight_lbs,tags,score,created_at) VALUES(?,?,?,?,?,?,?,?,?,?)",req.user.id,title,f.filename,f.mimetype||"",f.size||0,lift_type,weight,tags,0,now);
   if(lift_type&&weight){
     const ex=await db.get("SELECT * FROM personal_bests WHERE user_id=? AND lift_type=?",req.user.id,lift_type);
+    // Always record in pr_history, only update PB if new record
+    await db.run("INSERT INTO pr_history(user_id,lift_type,weight_lbs,set_at) VALUES(?,?,?,?)",req.user.id,lift_type,weight,now);
     if(!ex||ex.weight_lbs<weight){
       await db.run("INSERT INTO personal_bests(user_id,lift_type,weight_lbs,video_id,set_at) VALUES(?,?,?,?,?) ON CONFLICT(user_id,lift_type) DO UPDATE SET weight_lbs=excluded.weight_lbs,video_id=excluded.video_id,set_at=excluded.set_at",req.user.id,lift_type,weight,r.lastID,now);
-      await db.run("INSERT INTO pr_history(user_id,lift_type,weight_lbs,set_at) VALUES(?,?,?,?)",req.user.id,lift_type,weight,now);
+      console.log(`PR set: user ${req.user.id} ${lift_type} ${weight}lbs`);
     }
   }
   res.json({ok:true,video:{id:r.lastID,title,lift_type,weight_lbs:weight,url:`/uploads/${f.filename}`}});
