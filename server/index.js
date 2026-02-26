@@ -441,7 +441,7 @@ app.get("/api/leaderboard", async (req,res) => {
     if(gender&&gender!=="all"){ q+=" AND u.gender=?"; p.push(gender); }
     q+=" ORDER BY pb.weight_lbs DESC LIMIT 50";
     const rows=await db.all(q,...p);
-    return res.json({leaderboard:rows.map((r,i)=>({...r,rank:i+1,pts:r.weight_lbs,avatar_url:r.avatar_filename?`/uploads/${r.avatar_filename}`:null})),period:"lift",lift,gender,resets_in_days:null});
+    return res.json({leaderboard:rows.map((r,i)=>({...r,rank:i+1,pts:r.pts||r.weight_lbs,weight_lbs:r.pts||r.weight_lbs,avatar_url:r.avatar_filename?`/uploads/${r.avatar_filename}`:null})),period:"lift",lift,gender,resets_in_days:null});
   }
   let rows;
   if (period==="alltime") {
@@ -611,6 +611,21 @@ app.delete("/api/comments/:id", requireAuth, async (req,res) => {
   res.json({ok:true});
 });
 
+
+// Fix gender endpoint
+app.post("/api/admin/fix-gender", async (req,res) => {
+  const {user_id, gender} = req.body;
+  await db.run("UPDATE users SET gender=? WHERE id=?", gender, user_id);
+  res.json({ok:true});
+});
+
+// Debug endpoint
+app.get("/api/admin/debug", async (req,res) => {
+  const pbs = await db.all("SELECT * FROM personal_bests");
+  const videos = await db.all("SELECT id,user_id,lift_type,weight_lbs FROM videos");
+  const users = await db.all("SELECT id,username,gender FROM users");
+  res.json({personal_bests:pbs, videos, users});
+});
 
 // Backfill PRs from existing videos (run once)
 app.post("/api/admin/backfill-prs", async (req,res) => {
