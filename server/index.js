@@ -611,6 +611,36 @@ app.delete("/api/comments/:id", requireAuth, async (req,res) => {
   res.json({ok:true});
 });
 
+
+// Backfill PRs from existing videos (run once)
+app.post("/api/admin/backfill-prs", async (req,res) => {
+  const videos = await db.all("SELECT * FROM videos WHERE lift_type!='' AND weight_lbs IS NOT NULL AND weight_lbs>0");
+  let count=0;
+  for(const v of videos){
+    const ex = await db.get("SELECT * FROM personal_bests WHERE user_id=? AND lift_type=?",v.user_id,v.lift_type);
+    if(!ex||ex.weight_lbs<v.weight_lbs){
+      await db.run("INSERT INTO personal_bests(user_id,lift_type,weight_lbs,video_id,set_at) VALUES(?,?,?,?,?) ON CONFLICT(user_id,lift_type) DO UPDATE SET weight_lbs=excluded.weight_lbs,video_id=excluded.video_id,set_at=excluded.set_at",
+        v.user_id,v.lift_type,v.weight_lbs,v.id,v.created_at);
+      count++;
+    }
+  }
+  res.json({ok:true,updated:count});
+});
+
+// Manual PR log (no video required)
+app.post("/api/prs", requireAuth, async (req,res) => {
+  const lift=((req.body?.lift_type)||"").trim();
+  const weight=parseFloat(req.body?.weight_lbs)||null;
+  if(!lift||!weight) return res.status(400).json({error:"Missing lift_type or weight_lbs"});
+  const now=new Date().toISOString();
+  await db.run("INSERT INTO pr_history(user_id,lift_type,weight_lbs,set_at) VALUES(?,?,?,?)",req.user.id,lift,weight,now);
+  const ex=await db.get("SELECT * FROM personal_bests WHERE user_id=? AND lift_type=?",req.user.id,lift);
+  if(!ex||ex.weight_lbs<weight){
+    await db.run("INSERT INTO personal_bests(user_id,lift_type,weight_lbs,set_at) VALUES(?,?,?,?) ON CONFLICT(user_id,lift_type) DO UPDATE SET weight_lbs=excluded.weight_lbs,set_at=excluded.set_at",req.user.id,lift,weight,now);
+  }
+  res.json({ok:true,is_pr:!ex||ex.weight_lbs<weight});
+});
+
 /* ── CHALLENGES ── */
 app.post("/api/challenges", requireAuth, async (req,res) => {
   const {opponent_id,lift_type,duration_days}=req.body||{};
