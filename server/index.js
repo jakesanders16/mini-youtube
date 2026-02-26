@@ -602,6 +602,15 @@ app.get("/api/users/:id/pr-history", async (req,res) => {
   res.json({history:rows});
 });
 
+app.delete("/api/comments/:id", requireAuth, async (req,res) => {
+  const c=await db.get("SELECT * FROM comments WHERE id=?",Number(req.params.id));
+  if(!c) return res.status(404).json({error:"Not found"});
+  if(c.user_id!==req.user.id) return res.status(403).json({error:"Forbidden"});
+  await db.run("DELETE FROM comments WHERE id=?",c.id);
+  await db.run("UPDATE videos SET comment_count=MAX(0,comment_count-1) WHERE id=?",c.video_id);
+  res.json({ok:true});
+});
+
 /* ── CHALLENGES ── */
 app.post("/api/challenges", requireAuth, async (req,res) => {
   const {opponent_id,lift_type,duration_days}=req.body||{};
